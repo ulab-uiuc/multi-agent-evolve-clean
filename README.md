@@ -341,6 +341,7 @@ conda install nvidia/label/cuda-12.4.1::cuda-toolkit
 cd verl
 pip install -e .
 cd ..
+pip install wheel
 pip install flash-attn --no-build-isolation
 pip install -r requirements.txt
 pip uninstall vllm
