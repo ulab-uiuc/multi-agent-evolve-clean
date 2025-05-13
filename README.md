@@ -363,6 +363,9 @@ python -m absolute_zero_reasoner.data_construction.process_code_reasoning_data
   <hr style="height: 3px; background: linear-gradient(90deg, #EF8E8D, #5755A3); border: none; border-radius: 3px;">
 </div>
 
+> **⚠️WARNING⚠️**: The Python executor in this repository is very raw and intended for research purposes only. It is not secure for production environments. We plan to update our executor to more secure implementations in the future. Your use of our code is at your own discretion and risk.
+
+
 ## 🫛 Seeding (Optional)
 We provide the seed datasets we collected by prompting each model in data/. If you want to create your own seed data, use the following script:
 ```bash
