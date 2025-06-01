@@ -418,7 +418,7 @@ A conversation between User and Assistant. The user asks a question, and the Ass
   <hr style="height: 3px; background: linear-gradient(90deg, #EF8E8D, #5755A3); border: none; border-radius: 3px;">
 </div>
 
-TODO
+Please refer to [evaluation/math_eval/README.md](evaluation/math_eval/README.md) for math evaluation.
 
 <!-- ============================================== -->
 <div align="left">
