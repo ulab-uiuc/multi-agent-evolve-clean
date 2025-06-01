@@ -1,9 +1,7 @@
 #!/bin/bash
 
-export HF_ENDPOINT=https://hf-mirror.com
-
-export HUMANEVAL_OVERRIDE_PATH=evaluation/data/HumanEvalPlus.jsonl
-export MBPP_OVERRIDE_PATH=evaluation/data/MbppPlus.jsonl
+export HUMANEVAL_OVERRIDE_PATH=evaluation/code_eval/data/HumanEvalPlus.jsonl
+export MBPP_OVERRIDE_PATH=evaluation/code_eval/data/MbppPlus.jsonl
 
 # Set defaults if not specified - fix argument assignments
 DATASET=${1:-humaneval}

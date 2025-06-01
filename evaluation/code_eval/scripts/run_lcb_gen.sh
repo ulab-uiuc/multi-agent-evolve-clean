@@ -1,7 +1,5 @@
 #!/bin/bash
 
-export HF_ENDPOINT=https://hf-mirror.com
-
 # Default values
 MODEL_PATH="andrewzh/Absolute_Zero_Reasoner-Coder-7b"
 CUDA_GPU_ID="0"
@@ -50,7 +48,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-cd evaluate/coding/LiveCodeBench
+cd evaluation/code_eval/coding/LiveCodeBench
 
 # Run LiveCodeBench with the AZR template and a local model
 CUDA_VISIBLE_DEVICES=$CUDA_GPU_ID python -m lcb_runner.runner.main \

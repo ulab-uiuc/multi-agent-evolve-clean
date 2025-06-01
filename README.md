@@ -421,11 +421,11 @@ A conversation between User and Assistant. The user asks a question, and the Ass
 ## LiveCodeBench
 Setup: LCB needs to first download the data
 ```bash
-git clone https://hf-mirror.com/datasets/livecodebench/code_generation_lite evaluate/coding/LiveCodeBench/code_generation_lite
+git clone https://hf-mirror.com/datasets/livecodebench/code_generation_lite evaluation/code_eval/coding/LiveCodeBench/code_generation_lite
 ```
 Evaluation:
 ```bash
-bash evaluate/scripts/run_lcb_gen.sh --model <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+bash evaluation/code_eval/scripts/run_lcb_gen.sh --model <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
 ```
 
 ## Evalplus
@@ -436,7 +436,7 @@ pip install --upgrade "evalplus[vllm] @ git+https://github.com/evalplus/evalplus
 Evaluation:
 ```bash
 condda activate evalplus
-bash evaluate/scripts/run_evalplus.sh 0 <humaneval|mbpp> <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+bash evaluation/code_eval/scripts/run_evalplus.sh 0 <humaneval|mbpp> <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
 ```
 
 ## Math

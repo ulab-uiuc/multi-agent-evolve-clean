@@ -109,4 +109,4 @@ v*_*/*
 data/dapo*/*
 uploads/*
 evalplus_results/*
-evaluate/coding/LiveCodeBench/*/lcb
+evaluation/code_eval/coding/LiveCodeBench/*/lcb
