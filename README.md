@@ -418,7 +418,29 @@ A conversation between User and Assistant. The user asks a question, and the Ass
   <hr style="height: 3px; background: linear-gradient(90deg, #EF8E8D, #5755A3); border: none; border-radius: 3px;">
 </div>
 
-TODO
+## LiveCodeBench
+Setup: LCB needs to first download the data
+```bash
+git clone https://hf-mirror.com/datasets/livecodebench/code_generation_lite evaluate/coding/LiveCodeBench/code_generation_lite
+```
+Evaluation:
+```bash
+bash evaluate/scripts/run_lcb_gen.sh --model <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+```
+
+## Evalplus
+New conda env is neede for evalplus
+```bash
+conda create -n evalplus python=3.11
+pip install --upgrade "evalplus[vllm] @ git+https://github.com/evalplus/evalplus@d362e933265c3e7e3df8101c930a89c3c470cd9f"
+Evaluation:
+```bash
+condda activate evalplus
+bash evaluate/scripts/run_evalplus.sh 0 <humaneval|mbpp> <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+```
+
+## Math
+
 
 <!-- ============================================== -->
 <div align="left">

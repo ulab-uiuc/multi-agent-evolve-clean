@@ -106,3 +106,5 @@ code_generation_lite/*
 v*_*/*
 data/dapo*/*
 uploads/*
+evalplus_results/*
+evaluate/coding/LiveCodeBench/*/lcb
