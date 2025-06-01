@@ -59,9 +59,9 @@
 </div>
 
 <!-- Roadmap Item: Pending -->
-<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(239, 142, 141, 0.2); border-left: 5px solid #EF8E8D; border-radius: 8px; display: flex; align-items: center;">
-  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #EF8E8D;">⏳</span>
-  <span style="color: #FFF; font-size: 1.1em; font-weight: 500;">Release evaluation code</span> <!-- Increased size, color #FFF, slight bold -->
+<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
+  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release evaluation code</span> <!-- Increased size, lighter gray for contrast -->
 </div>
 
 <!-- Roadmap Item: Pending -->
@@ -418,7 +418,30 @@ A conversation between User and Assistant. The user asks a question, and the Ass
   <hr style="height: 3px; background: linear-gradient(90deg, #EF8E8D, #5755A3); border: none; border-radius: 3px;">
 </div>
 
-TODO
+## LiveCodeBench
+Setup: LCB needs to first download the data
+```bash
+git clone https://hf-mirror.com/datasets/livecodebench/code_generation_lite evaluation/code_eval/coding/LiveCodeBench/code_generation_lite
+```
+Evaluation:
+```bash
+bash evaluation/code_eval/scripts/run_lcb_gen.sh --model <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+```
+
+## Evalplus
+New conda env is neede for evalplus
+```bash
+conda create -n evalplus python=3.11
+pip install --upgrade "evalplus[vllm] @ git+https://github.com/evalplus/evalplus@d362e933265c3e7e3df8101c930a89c3c470cd9f"
+Evaluation:
+```bash
+condda activate evalplus
+bash evaluation/code_eval/scripts/run_evalplus.sh 0 <humaneval|mbpp> <andrewzh/Absolute_Zero_Reasoner-Coder-3b>
+```
+
+## Math
+Please refer to [evaluation/math_eval/README.md](evaluation/math_eval/README.md) for math evaluation.
+
 
 <!-- ============================================== -->
 <div align="left">
