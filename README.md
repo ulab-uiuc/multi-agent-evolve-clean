@@ -440,6 +440,7 @@ bash evaluate/scripts/run_evalplus.sh 0 <humaneval|mbpp> <andrewzh/Absolute_Zero
 ```
 
 ## Math
+Please refer to [evaluation/math_eval/README.md](evaluation/math_eval/README.md) for math evaluation.
 
 
 <!-- ============================================== -->
