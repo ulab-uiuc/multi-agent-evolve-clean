@@ -18,4 +18,3 @@ matplotlib
 jieba
 pebble
 vllm==0.7.3
-flash-attn

@@ -8,15 +8,18 @@ conda create -n azr_eval python=3.10.16 -y
 conda activate azr_eval
 
 # Install latex2sympy
-cd math_eval
+cd evaluation/math_eval
 tar -xzvf latex2sympy.tar.gz 
-cd latex2sympy
+cd eval/latex2sympy
 pip install -e .
 cd ../..
 # Install other packages. Note the `requirements.txt` doesn't limit packages versions. You can use `freezed_requirements.txt` to install all freezed versions but might include some unused packages.
 pip install -r requirements.txt
-```
 
+# Install flash-attn
+pip install flash_attn==2.7.4.post1
+```
+ 
 
 ### Evaluation
 
