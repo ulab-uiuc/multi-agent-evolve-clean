@@ -20,6 +20,8 @@ wheels/
 .installed.cfg
 *.egg
 # models/
+models/
+latex2sympy/
 
 # Virtual Environment
 venv/
@@ -106,3 +108,5 @@ code_generation_lite/*
 v*_*/*
 data/dapo*/*
 uploads/*
+evalplus_results/*
+evaluation/code_eval/coding/LiveCodeBench/*/lcb
