@@ -1,6 +1,6 @@
 #!/bin/bash
 
-cd math_eval
+cd eval
 
 export NCCL_DEBUG=warn
 # 定义评估脚本路径

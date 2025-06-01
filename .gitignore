@@ -20,7 +20,7 @@ wheels/
 .installed.cfg
 *.egg
 # models/
-absolute_zero_reasoner/eval/models/
+models/
 latex2sympy/
 
 # Virtual Environment

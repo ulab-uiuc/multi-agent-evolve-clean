@@ -1,8 +1,6 @@
-abs_model_dir=$(realpath models)
-
 bash eval_math_nodes.sh \
     --run_name azr_coder_3b_seed2 \
-    --init_model $abs_model_dir/azr_coder-3b \
+    --init_model $(ls -d ~/.cache/huggingface/hub/models--andrewzh--Absolute_Zero_Reasoner-Coder-3b/snapshots/*) \
     --template azr \
     --tp_size 1 \
     --add_step_0 true \
@@ -16,7 +14,7 @@ bash eval_math_nodes.sh \
 
 bash eval_math_nodes.sh \
     --run_name azr_base_7b_seed2 \
-    --init_model $abs_model_dir/azr_base-7b \
+    --init_model $(ls -d ~/.cache/huggingface/hub/models--andrewzh2--Absolute_Zero_Reasoner-Base-7b/snapshots/*) \
     --template azr \
     --tp_size 1 \
     --add_step_0 true \
@@ -30,7 +28,7 @@ bash eval_math_nodes.sh \
 
 bash eval_math_nodes.sh \
     --run_name azr_coder_7b_seed2 \
-    --init_model $abs_model_dir/azr_coder-7b \
+    --init_model $(ls -d ~/.cache/huggingface/hub/models--andrewzh--Absolute_Zero_Reasoner-Coder-7b/snapshots/*) \
     --template azr_boxed \
     --tp_size 1 \
     --add_step_0 true \
@@ -42,10 +40,9 @@ bash eval_math_nodes.sh \
     --just_wandb false \
     --seed 2
 
-
 bash eval_math_nodes.sh \
     --run_name azr_base_14b_seed2 \
-    --init_model $abs_model_dir/azr_base-14b \
+    --init_model $(ls -d ~/.cache/huggingface/hub/models--andrewzh2--Absolute_Zero_Reasoner-Base-14b/snapshots/*) \
     --template azr \
     --tp_size 1 \
     --add_step_0 true \
@@ -60,7 +57,7 @@ bash eval_math_nodes.sh \
 
 bash eval_math_nodes.sh \
     --run_name azr_coder_14b_seed2 \
-    --init_model $abs_model_dir/azr_coder-14b \
+    --init_model $(ls -d ~/.cache/huggingface/hub/models--andrewzh--Absolute_Zero_Reasoner-Coder-14b/snapshots/*) \
     --template azr \
     --tp_size 1 \
     --add_step_0 true \
