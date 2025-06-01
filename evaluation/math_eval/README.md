@@ -13,7 +13,7 @@ tar -xzvf latex2sympy.tar.gz
 cd latex2sympy
 pip install -e .
 cd ../..
-# Install other packages
+# Install other packages. Note the `requirements.txt` doesn't limit packages versions. You can use `freezed_requirements.txt` to install all freezed versions but might include some unused packages.
 pip install -r requirements.txt
 ```
 
