@@ -6,9 +6,9 @@ export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
 export PYTHONPATH="${PYTHONPATH}:$(pwd)/verl"
 
-OUTPUT_SEED_PATH=${OUTPUT_SEED_PATH:-data/llama_64_seed_io.jsonl}
-OUTPUT_ERROR_SEED_PATH=${OUTPUT_ERROR_SEED_PATH:-data/llama_64_error_seed_io.jsonl}
-OUTPUT_CODE_F_SEED_PATH=${OUTPUT_CODE_F_SEED_PATH:-data/llama_64_code_f_seed_io.jsonl}
+OUTPUT_SEED_PATH=${OUTPUT_SEED_PATH:-data/3b_coder_seed_io.jsonl}
+OUTPUT_ERROR_SEED_PATH=${OUTPUT_ERROR_SEED_PATH:-data/3b_coder_error_seed_io.jsonl}
+OUTPUT_CODE_F_SEED_PATH=${OUTPUT_CODE_F_SEED_PATH:-data/3b_coder_code_f_seed_io.jsonl}
 
 python -m absolute_zero_reasoner.main_azr_ppo \
     data.shuffle=True \
@@ -21,7 +21,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     data.max_prompt_length=6144 \
     data.max_response_length=8096 \
     azr.data_selection_strategy.content_max_length=5600 \
-    actor_rollout_ref.model.path=meta-llama/Llama-3.1-8B \
+    actor_rollout_ref.model.path=Qwen/Qwen2.5-Coder-3B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
@@ -29,7 +29,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0.0 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
-    actor_rollout_ref.actor.ulysses_sequence_parallel_size=4 \
+    actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.pretrained_tokenizer=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
@@ -47,10 +47,10 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.0 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console'] \
     trainer.project_name='azr' \
-    trainer.experiment_name='azr_llama' \
-    trainer.n_gpus_per_node=4 \
+    trainer.experiment_name='test' \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=10 \
     trainer.remove_previous_ckpt_in_save=True \
@@ -61,19 +61,20 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     reward_fn.math_metric=math_verify \
     trainer.log_val_generations=0 \
     azr.data_selection_strategy.update_iteration=1 \
-    azr.seed_dataset=$OUTPUT_SEED_PATH \
-    azr.output_seed_path=$OUTPUT_SEED_PATH \
-    azr.error_seed_dataset=$OUTPUT_ERROR_SEED_PATH \
-    azr.output_error_seed_path=$OUTPUT_ERROR_SEED_PATH \
-    azr.code_f_seed_dataset=$OUTPUT_CODE_F_SEED_PATH \
-    azr.output_code_f_seed_path=$OUTPUT_CODE_F_SEED_PATH \
+    azr.seed_dataset=data/3b_coder_seed_io.jsonl \
+    azr.output_seed_path=data/3b_coder_seed_io.jsonl \
+    azr.error_seed_dataset=data/3b_coder_error_seed_io.jsonl \
+    azr.output_error_seed_path=data/3b_coder_error_seed_io.jsonl \
+    azr.code_f_seed_dataset=data/3b_coder_code_f_seed_io.jsonl \
+    azr.output_code_f_seed_path=data/3b_coder_code_f_seed_io.jsonl \
     azr.pretrain_pred_steps=-1 \
     azr.executor=qwq \
     azr.ast_check=True \
     azr.reward.n_samples=8 \
     azr.problem_types=['code_i','code_o','code_f'] \
     azr.data_selection_strategy.banned_keywords_for_errors_and_exceptions=['raise'] \
-    trainer.debug=False \
+    trainer.debug=True \
+    trainer.debug_port=6380 \
     azr.reward.generation_reward_config.complexity_reward.coef=0.0 \
     azr.reward.generation_reward_config.complexity_reward.max=0.0 \
     azr.reward.generation_reward_config.complexity_reward.enabled=False \
@@ -88,7 +89,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.reward.generation_reward_config.answer_diversity_reward.enabled=False \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=False \
     azr.pred_data_mix_strategy=max_new \
-    azr.data_selection_strategy.seed_batch_factor=1 \
+    azr.data_selection_strategy.seed_batch_factor=4 \
     azr.data_selection_strategy.valid_program_filter=all \
     azr.data_selection_strategy.max_programs=16384 \
     azr.data_selection_strategy.batched_estimate=False \
@@ -104,7 +105,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.composite_function_n_min=0 \
     azr.data_selection_strategy.composite_function_n_max=0 \
     azr.reward.code_f_reward_type=binary \
-    azr.reward.generation_reward_config.reject_multiple_functions=False \
-    azr.reward.generation_reward_config.f_replace_location=any_last \
     trainer.wandb_run_id=null \
+    trainer.debug=True \
+    trainer.debug_port=6380 \
     trainer.total_epochs=30 $@

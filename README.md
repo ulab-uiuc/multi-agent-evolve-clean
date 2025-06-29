@@ -32,7 +32,14 @@
 
 <!-- ============================================== -->
 
+> **⚠️WARNING⚠️**: New Qwen3 base models have untrained <think> token embeddings, we used `python absolute_zero_reasoner/utils/remove_think_qwen3_tokenizer.py --model_name <Qwen3ModelName>` to remove these tokens or else the model produces nonsense.
+
+> **🚧UNDER TESTING🚧** This new merge to `main` is still under testing. Use the `paper` branch to replicate results from original paper. 
+
+- **[2025/06/28]** We now support new version of veRL, use the `paper` branch to reproduce the paper results with static copy of veRL. The `main` branch will now be regularly updated with the latest veRL versions.
+- **[2025/06/01]** We release code for evals
 - **[2025/05/06]** We present the **Absolute Zero Reasoner** [[Project Page](https://andrewzh112.github.io/absolute-zero-reasoner/) | [Paper](https://arxiv.org/abs/2505.03335) | [Code](https://github.com/LeapLabTHU/Absolute-Zero-Reasoner) | [Model(s)](https://huggingface.co/collections/andrewzh/absolute-zero-reasoner-68139b2bca82afb00bc69e5b) | [Logs](https://wandb.ai/andrewzhao112/AbsoluteZeroReasoner)].
+
 
 <!-- ============================================== -->
 <div align="left">
@@ -58,22 +65,22 @@
   <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release training code</span> <!-- Increased size, lighter gray for contrast -->
 </div>
 
-<!-- Roadmap Item: Pending -->
+<!-- Roadmap Item: Completed -->
 <div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
   <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
   <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release evaluation code</span> <!-- Increased size, lighter gray for contrast -->
 </div>
 
-<!-- Roadmap Item: Pending -->
-<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(239, 142, 141, 0.2); border-left: 5px solid #EF8E8D; border-radius: 8px; display: flex; align-items: center;">
-  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #EF8E8D;">⏳</span>
-  <span style="color: #FFF; font-size: 1.1em; font-weight: 500;">Update veRL</span> <!-- Increased size, color #FFF, slight bold -->
+<!-- Roadmap Item: Completed -->
+<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
+  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Update veRL</span> <!-- Increased size, color #FFF, slight bold -->
 </div>
 
 <!-- Roadmap Item: Pending -->
 <div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(239, 142, 141, 0.2); border-left: 5px solid #EF8E8D; border-radius: 8px; display: flex; align-items: center;">
   <span style="font-size: 1.2em; margin-right: 0.8rem; color: #EF8E8D;">⏳</span>
-  <span style="color: #FFF; font-size: 1.1em; font-weight: 500;">Upgrade Python executor</span> <!-- Increased size, color #FFF, slight bold -->
+  <span style="color: #FFF; font-size: 1.1em; font-weight: 500;">Upgrade Python executor</span> <!-- Increased size, lighter gray for contrast -->
 </div>
 
 <!-- ============================================== -->
@@ -335,20 +342,9 @@ AZR shows consistent improvements across model sizes and types:
 
 ## 🎄 Environment Setup
 ```bash
-conda create -n azr python=3.10
+conda env create -f azr_env.yml
 conda activate azr
-conda install nvidia/label/cuda-12.4.1::cuda-toolkit
-cd verl
-pip install -e .
-cd ..
-pip install wheel
-pip install flash-attn --no-build-isolation
-pip install -r requirements.txt
-pip uninstall vllm
-pip install vllm==0.7.3
-pip install transformers==4.47.1
-pip install "math-verify[antlr4_9_3]"
-pip install debugpy
+pip install -r flashattn_requirements.txt
 ```
 
 ## 💾 Data Processing

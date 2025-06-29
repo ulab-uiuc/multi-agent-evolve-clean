@@ -17,14 +17,16 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from omegaconf import OmegaConf
 import numpy as np
 from verl.utils.dataset.rl_dataset import collate_fn
+from verl.utils.debug import marked_timer
 from verl.trainer.ppo.ray_trainer import (
-    _timer,
     apply_kl_penalty,
     compute_advantage,
+    compute_response_mask,
     reduce_metrics,
     compute_timing_metrics,
-    _compute_response_info,
+    agg_loss,
 )
+from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto, DataProto
 
 from absolute_zero_reasoner.utils.tracking import ReasonRLTracking
@@ -798,7 +800,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
         gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
 
         # generate a batch
-        with _timer(f'gen/{problem_type}', timing_raw):
+        with marked_timer(f'gen/{problem_type}', timing_raw):
             gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
 
         batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
@@ -807,29 +809,66 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         batch = batch.union(gen_batch_output)
 
-        # balance the number of valid tokens on each dp rank
-        self._balance_batch(batch, metrics=metrics)
+        batch.batch["response_mask"] = compute_response_mask(batch)
+        # Balance the number of valid tokens across DP ranks.
+        # NOTE: This usually changes the order of data in the `batch`,
+        # which won't affect the advantage calculation (since it's based on uid),
+        # but might affect the loss calculation (due to the change of mini-batching).
+        # TODO: Decouple the DP balancing and mini-batching.
+        if self.config.trainer.balance_batch:
+            self._balance_batch(batch, metrics=metrics)
 
         # compute global_valid tokens
         batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
         # recompute old_log_probs
-        with _timer(f'old_log_prob/{problem_type}', timing_raw):
+        with marked_timer(f'old_log_prob/{problem_type}', timing_raw):
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+            entropys = old_log_prob.batch["entropys"]
+            response_masks = batch.batch["response_mask"]
+            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+            entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+            old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
+            metrics.update(old_log_prob_metrics)
+            old_log_prob.batch.pop("entropys")
             batch = batch.union(old_log_prob)
 
+            if "rollout_log_probs" in batch.batch.keys():
+                # TODO: we may want to add diff of probs too.
+                rollout_old_log_probs = batch.batch["rollout_log_probs"]
+                actor_old_log_probs = batch.batch["old_log_probs"]
+                attention_mask = batch.batch["attention_mask"]
+                responses = batch.batch["responses"]
+                response_length = responses.size(1)
+                response_mask = attention_mask[:, -response_length:]
+
+                rollout_probs = torch.exp(rollout_old_log_probs)
+                actor_probs = torch.exp(actor_old_log_probs)
+                rollout_probs_diff = torch.abs(rollout_probs - actor_probs)
+                rollout_probs_diff = torch.masked_select(rollout_probs_diff, response_mask.bool())
+                rollout_probs_diff_max = torch.max(rollout_probs_diff)
+                rollout_probs_diff_mean = torch.mean(rollout_probs_diff)
+                rollout_probs_diff_std = torch.std(rollout_probs_diff)
+                metrics.update(
+                    {
+                        "training/rollout_probs_diff_max": rollout_probs_diff_max.detach().item(),
+                        "training/rollout_probs_diff_mean": rollout_probs_diff_mean.detach().item(),
+                        "training/rollout_probs_diff_std": rollout_probs_diff_std.detach().item(),
+                    }
+                )
+
         if self.use_reference_policy:
-            with _timer(f'ref/{problem_type}', timing_raw):
+            with marked_timer(f'ref/{problem_type}', timing_raw):
                 ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                 batch = batch.union(ref_log_prob)
 
         # compute values
         if self.use_critic:
-            with _timer(f'values/{problem_type}', timing_raw):
+            with marked_timer(f'values/{problem_type}', timing_raw):
                 values = self.critic_wg.compute_values(batch)
                 batch = batch.union(values)
 
-        with _timer(f'adv/{problem_type}', timing_raw):
+        with marked_timer(f'adv/{problem_type}', timing_raw):
             if self.use_rm:
                 reward_tensor = self.rm_wg.compute_rm_score(batch)
                 batch = batch.union(reward_tensor)
@@ -865,7 +904,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     'problem_type': problem_type, 
                     'executor': executor,
                 }
-            with _timer(f'reward_fn/{problem_type}', timing_raw):
+            with marked_timer(f'reward_fn/{problem_type}', timing_raw):
                 PrettyPrinter.status("REWARD", f"Computing rewards for {problem_type}...", "info")
                 reward_tensor, train_metrics, valid_programs, correct_predictions = self.reward_fn(**reward_fn_kwargs)
                 PrettyPrinter.status("REWARD", f"Found {len(valid_programs) if valid_programs else 0} valid programs", "success")
@@ -970,7 +1009,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
             metrics.update(train_metrics)
             batch.batch['token_level_scores'] = reward_tensor
 
-            if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+            if self.config.algorithm.use_kl_in_reward:
                 batch, kl_metrics = apply_kl_penalty(batch,
                                                 kl_ctrl=self.kl_ctrl,
                                                 kl_penalty=self.config.algorithm.kl_penalty)
@@ -982,7 +1021,8 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                     adv_estimator=self.config.algorithm.adv_estimator,
                                     gamma=self.config.algorithm.gamma,
                                     lam=self.config.algorithm.lam,
-                                    num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                    num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                    config=self.config.algorithm)
 
         gc.collect()
         return batch, metrics
@@ -1073,6 +1113,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                             reject_multiple_functions=self.config.azr.reward.generation_reward_config.reject_multiple_functions,
                             f_replace_location=self.config.azr.reward.generation_reward_config.f_replace_location,
                             reject_test_input_in_code=self.config.azr.reward.generation_reward_config.reject_test_input_in_code,
+                            code_location=self.config.azr.reward.generation_reward_config.code_location,
                         )
                         if success:
                             code_validity, output = self._executor.check_all(
@@ -1625,11 +1666,11 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 metrics = {}
                 timing_raw = {}
                 batches = {}
-                with _timer('step', timing_raw):
+                with marked_timer('step', timing_raw):
                     # Clean up executor periodically
                     if self.global_steps - self._last_cleanup_step >= self._cleanup_frequency:
                         PrettyPrinter.section_header("Periodic Cleanup")
-                        with _timer('cleanup', timing_raw):
+                        with marked_timer('cleanup', timing_raw):
                             self.cleanup()
                         self._last_cleanup_step = self.global_steps
 
@@ -1687,14 +1728,14 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     PrettyPrinter.section_header(f"Starting Parameter Updates")
                     # update critic
                     if self.use_critic:
-                        with _timer('update_critic', timing_raw):
+                        with marked_timer('update_critic', timing_raw):
                             critic_output = self.critic_wg.update_critic(batch)
                         critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
                         metrics.update(critic_output_metrics)
 
                     # implement critic warmup
                     if self.config.trainer.critic_warmup <= self.global_steps:
-                        with _timer('update_actor', timing_raw):
+                        with marked_timer('update_actor', timing_raw):
                             actor_output = self.actor_rollout_wg.update_actor(batch)
                         actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
                         metrics.update(actor_output_metrics)
@@ -1703,7 +1744,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     PrettyPrinter.section_header(f"Starting Validation")
                     if self.val_reward_fn is not None and self.config.trainer.test_freq > 0 and \
                         self.global_steps % self.config.trainer.test_freq == 0:
-                        with _timer('testing', timing_raw):
+                        with marked_timer('testing', timing_raw):
                             val_metrics: dict = self._validate()
                             PrettyPrinter.table(
                                 ["Data Source", "Average Score"],
@@ -1739,7 +1780,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                         )
                     if self.config.trainer.save_freq > 0 and \
                             self.global_steps % self.config.trainer.save_freq == 0:
-                        with _timer('save_checkpoint', timing_raw):
+                        with marked_timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
                 # collect metrics, separate problem types
@@ -1840,7 +1881,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                         logger.log(data=val_metrics, step=self.global_steps)
                     if self.config.trainer.save_freq > 0 and \
                             (self.global_steps - 1) % self.config.trainer.save_freq != 0:
-                        with _timer('save_checkpoint', timing_raw):
+                        with marked_timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
                     return
 
@@ -1909,7 +1950,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
             reward_tensor_lst.append(reward_tensor)
             data_source_lst.append(test_batch.non_tensor_batch.get('data_source', ['unknown'] * reward_tensor.shape[0]))
 
-        self._maybe_log_val_generations_to_wandb(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
+        self._maybe_log_val_generations(inputs=sample_inputs, outputs=sample_outputs, scores=sample_scores)
 
         reward_tensor = torch.cat(reward_tensor_lst, dim=0).sum(-1).cpu()  # (batch_size,)
         data_sources = np.concatenate(data_source_lst, axis=0)

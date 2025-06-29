@@ -192,6 +192,7 @@ class CodeIORewardManager():
                 reject_multiple_functions=self.generation_reward_config.reject_multiple_functions,
                 f_replace_location=self.generation_reward_config.f_replace_location,
                 reject_test_input_in_code=self.generation_reward_config.reject_test_input_in_code,
+                code_location=self.generation_reward_config.code_location,
             )
             if len(data_dict['composite_functions']) > 0 and success:
                 # first, check if the composite function names are redefined in the code, which we do not allow

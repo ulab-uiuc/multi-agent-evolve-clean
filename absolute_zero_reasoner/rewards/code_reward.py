@@ -298,6 +298,7 @@ def parse_code_input_output(
     reject_multiple_functions: bool = True,
     reject_test_input_in_code: bool = False,
     f_replace_location: str = 'not_first',
+    code_location: str = 'first',
 ) -> Tuple[bool, Dict[str, str]]:
     """
     Parse the input and output of a code snippet.
@@ -314,7 +315,17 @@ def parse_code_input_output(
 
     # Use flags for case-insensitive matching and dotall
     flags = re.DOTALL | re.IGNORECASE
-    code_match = re.search(code_pattern, input_str, flags)
+
+    if code_location == 'last':
+        code_matches = list(re.finditer(code_pattern, input_str, flags))
+        if not code_matches:
+            code_match = None
+        else:
+            code_match = code_matches[-1]
+    elif code_location == 'first':
+        code_match = re.search(code_pattern, input_str, flags)
+    else:
+        raise ValueError(f"Invalid code_location: {code_location}. Must be 'first' or 'last'.")
 
     # Check required blocks
     if parse_input:

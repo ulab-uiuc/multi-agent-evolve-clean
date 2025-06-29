@@ -87,7 +87,6 @@ def get_gen_code_io_data(
                 remove_input_from_snippet=remove_input_from_snippet,
             )
         )
-        # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             io_item = {
                 "data_source": 'gen_' + problem_type,
@@ -181,7 +180,6 @@ def get_pred_code_io_data(
                     output=io_item['output'],
                 )
             )
-        # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             output_io_item = {
                 "data_source": 'pred_' + problem_type,

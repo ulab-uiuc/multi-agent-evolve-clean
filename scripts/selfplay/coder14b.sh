@@ -4,6 +4,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
+export PYTHONPATH="${PYTHONPATH}:$(pwd)/verl"
 
 OUTPUT_SEED_PATH=${OUTPUT_SEED_PATH:-data/14b_coder_seed_io.jsonl}
 OUTPUT_ERROR_SEED_PATH=${OUTPUT_ERROR_SEED_PATH:-data/14b_coder_error_seed_io.jsonl}
@@ -18,8 +19,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     data.train_batch_size=64 \
     data.val_batch_size=1312 \
     data.max_prompt_length=6144 \
-    data.max_validation_prompt_length=6144 \
     data.max_response_length=8096 \
+    azr.data_selection_strategy.content_max_length=5600 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-Coder-14B \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -32,7 +33,6 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.pretrained_tokenizer=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=64 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=64 \
@@ -59,7 +59,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     +trainer.val_before_train=False \
     reward_fn.extraction_type=answer_conditional \
     reward_fn.math_metric=math_verify \
-    trainer.val_generations_to_log_to_wandb=0 \
+    trainer.log_val_generations=0 \
     azr.data_selection_strategy.update_iteration=1 \
     azr.seed_dataset=$OUTPUT_SEED_PATH \
     azr.output_seed_path=$OUTPUT_SEED_PATH \
