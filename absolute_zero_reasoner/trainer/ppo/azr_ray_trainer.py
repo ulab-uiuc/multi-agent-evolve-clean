@@ -35,6 +35,7 @@ from absolute_zero_reasoner.trainer.ppo.reason_rl_ray_trainer import ReasonRLRay
 from absolute_zero_reasoner.utils.dataset.rl_dataset import RLHFDataset
 from absolute_zero_reasoner.rewards.code_reward import parse_code_input_output, parse_inputs_message
 from absolute_zero_reasoner.utils.code_utils.python_executor import PythonExecutor
+from absolute_zero_reasoner.utils.code_utils.sandboxfusion_executor import SandboxfusionExecutor
 from absolute_zero_reasoner.utils.auxiliary import reflection_keywords
 from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
 
@@ -594,6 +595,13 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 timeout_length=self.config.azr.execute_max_timeout, 
                 ast_check=self.config.azr.ast_check,
                 max_workers=self.config.azr.get('executor_max_workers', 1)
+            )
+        elif self.config.azr.executor == 'sandboxfusion':
+            self._executor = SandboxfusionExecutor(
+                timeout_length=self.config.azr.execute_max_timeout, 
+                ast_check=self.config.azr.ast_check,
+                max_workers=self.config.azr.get('executor_max_workers', 1),
+                use_china_mirror=self.config.azr.get('use_china_mirror', True)
             )
         else:
             raise ValueError(f'Invalid executor: {self.config.azr.executor}')

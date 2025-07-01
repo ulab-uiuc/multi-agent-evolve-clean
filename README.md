@@ -36,6 +36,7 @@
 
 > **🚧UNDER TESTING🚧** This new merge to `main` is still under testing. Use the `paper` branch to replicate results from original paper. 
 
+- **[2025/06/30]** We now support [Sandbox-Fusion](https://github.com/bytedance/SandboxFusion) as executor, just put `azr.executor=sandboxfusion` in training configs. Officially completed our initial roadmap.
 - **[2025/06/28]** We now support new version of veRL, use the `paper` branch to reproduce the paper results with static copy of veRL. The `main` branch will now be regularly updated with the latest veRL versions.
 - **[2025/06/01]** We release code for evals
 - **[2025/05/06]** We present the **Absolute Zero Reasoner** [[Project Page](https://andrewzh112.github.io/absolute-zero-reasoner/) | [Paper](https://arxiv.org/abs/2505.03335) | [Code](https://github.com/LeapLabTHU/Absolute-Zero-Reasoner) | [Model(s)](https://huggingface.co/collections/andrewzh/absolute-zero-reasoner-68139b2bca82afb00bc69e5b) | [Logs](https://wandb.ai/andrewzhao112/AbsoluteZeroReasoner)].
@@ -59,28 +60,24 @@
   <hr style="height: 3px; background: linear-gradient(90deg, #EF8E8D, #5755A3); border: none; border-radius: 3px;">
 </div>
 
-<!-- Roadmap Item: Completed -->
 <div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
   <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
-  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release training code</span> <!-- Increased size, lighter gray for contrast -->
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release training code</span>
 </div>
 
-<!-- Roadmap Item: Completed -->
 <div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
   <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
-  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release evaluation code</span> <!-- Increased size, lighter gray for contrast -->
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Release evaluation code</span>
 </div>
 
-<!-- Roadmap Item: Completed -->
 <div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
   <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
-  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Update veRL</span> <!-- Increased size, color #FFF, slight bold -->
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Update veRL</span>
 </div>
 
-<!-- Roadmap Item: Pending -->
-<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(239, 142, 141, 0.2); border-left: 5px solid #EF8E8D; border-radius: 8px; display: flex; align-items: center;">
-  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #EF8E8D;">⏳</span>
-  <span style="color: #FFF; font-size: 1.1em; font-weight: 500;">Upgrade Python executor</span> <!-- Increased size, lighter gray for contrast -->
+<div style="margin-bottom: 0.8rem; padding: 0.8rem 1.2rem; background-color: rgba(87, 85, 163, 0.1); border-left: 5px solid #5755A3; border-radius: 8px; display: flex; align-items: center;">
+  <span style="font-size: 1.2em; margin-right: 0.8rem; color: #5755A3;">✅</span>
+  <span style="text-decoration: line-through; color: #AAA; font-size: 1.1em;">Upgrade Python executor</span>
 </div>
 
 <!-- ============================================== -->
@@ -381,6 +378,7 @@ export OUTPUT_SEED_PATH=data/<your_ded_abd_seed_data_name>.jsonl
 export OUTPUT_CODE_F_SEED_PATH=data/<your_ind_seed_data_name>.jsonl
 bash scripts/selfplay/<7b|14b|coder3b|coder7b|coder14b|llama>.sh
 ```
+For using the newly supported sandbox-fusion executor, use docker and set `azr.executor=sandboxfusion`.
 
 ## 🌚 Resuming Runs
 When resuming runs, put the original run wandb id into the script, i.e., `trainer.wandb_run_id=<run_id>`.

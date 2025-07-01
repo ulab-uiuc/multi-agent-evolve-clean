@@ -496,11 +496,12 @@ azr:
   output_code_f_seed_path: null
   code_f_seed_dataset: null
   pretrain_pred_steps: -1
-  executor: qwq
+  executor: qwq # [qwq, sandboxfusion]
   ast_check: True
   execute_max_timeout: 10 # seconds
   random_print_max_programs: 3
   train_propose: True
+  use_china_mirror: True # used for sandboxfusion executor for people in China
   data_selection_strategy:
     io_n: 6
     update_iteration: 1
