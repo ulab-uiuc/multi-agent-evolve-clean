@@ -385,7 +385,7 @@ def choice_answer_clean(pred: str):
     pred = pred.strip("\n").rstrip(".").rstrip("/").strip(" ").lstrip(":")
 
     # Clean the answer based on the dataset
-    tmp = re.findall(r"\b(A|B|C|D|E)\b", pred.upper())
+    tmp = re.findall(r"\b(A|B|C|D|E|F|G|H|I|J)\b", pred.upper())
     if tmp:
         pred = tmp
     else:
@@ -600,6 +600,7 @@ def parse_ground_truth(example: Dict[str, Any], data_name):
         "gaokao2024_I",
         "gaokao2024_II",
         "imo2024",
+        "mmlupro"
     ]:
         gt_cot, gt_ans = None, example["answer"]
     else:

@@ -16,6 +16,8 @@ from trajectory import *
 from data_loader import load_data
 from python_executor import PythonExecutor
 from model_utils import load_hf_lm_and_tokenizer, generate_completions
+import string
+LETTERS = list(string.ascii_uppercase)[:10] # A, B, C, D, E, F, G, H, I, J 
 
 
 def parse_args():
@@ -175,7 +177,7 @@ def setup(args):
 
 def is_multi_choice(answer):
     for c in answer:
-        if c not in ["A", "B", "C", "D", "E"]:
+        if c not in LETTERS:
             return False
     return True
 
@@ -319,6 +321,7 @@ def main(llm, tokenizer, data_name, args):
                     stop=stop_words,
                     stop_token_ids=stop_token_ids,
                 ),
+                use_tqdm=False
             )
 
             outputs = sorted(
@@ -413,18 +416,12 @@ def main(llm, tokenizer, data_name, args):
         reports = [item[1] for item in result]
         finish_reason_list = finish_reasons[i * args.n_sampling : (i + 1) * args.n_sampling]
         for j in range(len(preds)):
-            if sample["gt"] in ["A", "B", "C", "D", "E"] and preds[j] not in [
-                "A",
-                "B",
-                "C",
-                "D",
-                "E",
-            ]:
+            if sample["gt"] in LETTERS and preds[j] not in LETTERS:
                 preds[j] = choice_answer_clean(code[j])
             elif is_multi_choice(sample["gt"]) and not is_multi_choice(preds[j]):
                 # remove any non-choice char
                 preds[j] = "".join(
-                    [c for c in preds[j] if c in ["A", "B", "C", "D", "E"]]
+                    [c for c in preds[j] if c in LETTERS]
                 )
 
         sample.pop("prompt")
