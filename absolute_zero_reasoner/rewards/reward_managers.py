@@ -673,7 +673,7 @@ class CodeIORewardManager():
                 'pad_token_id': self.tokenizer.pad_token_id,
                 'recompute_log_prob': False,
                 'do_sample': True,
-                'validate': True,
+                'validate': False,
             }
             # pad to be divisible by dp_size
             gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, rollout_actor_wg.world_size)
@@ -754,7 +754,7 @@ class CodeIORewardManager():
                             acc_reward = executor.eval_input_prediction(code=program, gold_output=gold_output, agent_input=answer, imports=list(set(imports)))
                             if acc_reward is not None:
                                 problem_accuracies.append(acc_reward)
-                            answer_cache[answer] = acc_reward
+                                answer_cache[answer] = acc_reward
                         # if self.debug:
                         #     batched_problem_accuracies = executor.eval_k_input_prediction(code=program, gold_output=gold_output, k_agent_inputs=answers, imports=list(set(imports)))
                         #     assert np.mean(batched_problem_accuracies) == np.mean(problem_accuracies), f"Gen I batch accuracy: {np.mean(batched_problem_accuracies)}, Single accuracy: {np.mean(problem_accuracies)}"
@@ -769,7 +769,7 @@ class CodeIORewardManager():
                             acc_reward = executor.eval_output_prediction(code=program, gold_output=gold_output, agent_output=answer, imports=list(set(imports)))
                             if acc_reward is not None:
                                 problem_accuracies.append(acc_reward)
-                            answer_cache[answer] = acc_reward
+                                answer_cache[answer] = acc_reward
                         # if self.debug:
                         #     batched_problem_accuracies = executor.eval_k_output_prediction(code=program, gold_output=gold_output, k_agent_outputs=answers, imports=list(set(imports)))
                         #     assert np.mean(batched_problem_accuracies) == np.mean(problem_accuracies), f"Gen O batch accuracy: {np.mean(batched_problem_accuracies)}, Single accuracy: {np.mean(problem_accuracies)}"
