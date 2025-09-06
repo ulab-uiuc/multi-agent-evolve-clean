@@ -1191,11 +1191,14 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             batch.batch['token_level_scores'] = reward_tensor
 
             if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                # [TODO]: is this correct?
-                batch, kl_metrics = apply_kl_penalty(batch,
-                                                kl_ctrl=self.kl_ctrl,
-                                                kl_penalty=self.config.algorithm.kl_penalty)
-                metrics.update(kl_metrics)
+                # Only apply KL penalty if use_kl_in_reward is enabled and kl_ctrl_in_reward is available
+                if self.config.algorithm.use_kl_in_reward and hasattr(self, 'kl_ctrl_in_reward'):
+                    batch, kl_metrics = apply_kl_penalty(batch,
+                                                    kl_ctrl=self.kl_ctrl_in_reward,
+                                                    kl_penalty=self.config.algorithm.kl_penalty)
+                    metrics.update(kl_metrics)
+                else:
+                    batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
             else:
                 batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
@@ -2227,7 +2230,7 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
             if self.config.algorithm.use_kl_in_reward:
                 batch, kl_metrics = apply_kl_penalty(batch,
-                                                kl_ctrl=self.kl_ctrl,
+                                                kl_ctrl=self.kl_ctrl_in_reward,
                                                 kl_penalty=self.config.algorithm.kl_penalty)
                 metrics.update(kl_metrics)
             else:
