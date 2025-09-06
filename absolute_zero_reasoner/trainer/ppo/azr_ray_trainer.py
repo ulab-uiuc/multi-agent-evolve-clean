@@ -18,6 +18,7 @@ from omegaconf import OmegaConf
 import numpy as np
 from verl.utils.dataset.rl_dataset import collate_fn
 from verl.utils.debug import marked_timer
+_timer = marked_timer
 from verl.trainer.ppo.ray_trainer import (
     apply_kl_penalty,
     compute_advantage,
@@ -30,7 +31,9 @@ from verl.trainer.ppo.metric_utils import _compute_response_info
 from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto, DataProto
 
 from absolute_zero_reasoner.utils.tracking import ReasonRLTracking
-from absolute_zero_reasoner.data_construction.constructor import get_gen_code_io_data, get_pred_code_io_data
+from absolute_zero_reasoner.utils.prompt_manager import PromptManager
+from absolute_zero_reasoner.utils.actor_prompt_optimizer import ActorPromptOptimizer, SafePromptUpdater
+from absolute_zero_reasoner.data_construction.constructor import get_gen_code_io_data, get_pred_code_io_data, get_gen_general_io_data, get_pred_general_io_data, get_judge_general_io_data
 from absolute_zero_reasoner.trainer.ppo.reason_rl_ray_trainer import ReasonRLRayPPOTrainer
 from absolute_zero_reasoner.utils.dataset.rl_dataset import RLHFDataset
 from absolute_zero_reasoner.rewards.code_reward import parse_code_input_output, parse_inputs_message
@@ -38,7 +41,8 @@ from absolute_zero_reasoner.utils.code_utils.python_executor import PythonExecut
 from absolute_zero_reasoner.utils.code_utils.sandboxfusion_executor import SandboxfusionExecutor
 from absolute_zero_reasoner.utils.auxiliary import reflection_keywords
 from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
-
+from datasets import load_dataset
+import random
 
 seed_program = """def f(a):
     return a"""
@@ -253,19 +257,27 @@ class DatasetManager:
             'error': [],
             'problem': [],
             'error_seed': [],
+            'general': [],  # General dataset for mixed data
+            'general_pair': [],
             'input_steps': [],  # Parallel list storing step numbers
             'output_steps': [], # Parallel list storing step numbers
             'error_steps': [], # Parallel list storing step numbers
             'problem_steps': [], # Parallel list storing step numbers
+            'general_steps': [], # Parallel list storing step numbers
+            'general_pair_steps': [],
             'input_steps_counter': defaultdict(int),
             'output_steps_counter': defaultdict(int),
             'error_steps_counter': defaultdict(int),
             'problem_steps_counter': defaultdict(int),
+            'general_steps_counter': defaultdict(int),
+            'general_pair_steps_counter': defaultdict(int),
         }
         self.type_counters = {
             'input_types': defaultdict(create_default_dict),
             'output_types': defaultdict(create_default_dict),
             'error_types': defaultdict(create_default_dict),
+            'general_types': defaultdict(create_default_dict),
+            'general_pair_types': defaultdict(create_default_dict),
         }
         self.locks = {
             'input': threading.Lock(),
@@ -273,18 +285,26 @@ class DatasetManager:
             'seed': threading.Lock(),
             'error': threading.Lock(),
             'problem': threading.Lock(),
+            'general': threading.Lock(),
+            'general_pair': threading.Lock(),
             'error_seed': threading.Lock(),
             'input_steps': threading.Lock(),
             'output_steps': threading.Lock(),
             'error_steps': threading.Lock(),
             'problem_steps': threading.Lock(),
+            'general_steps': threading.Lock(),
+            'general_pair_steps': threading.Lock(),
             'input_steps_counter': threading.Lock(),
             'output_steps_counter': threading.Lock(),
             'error_steps_counter': threading.Lock(),
             'problem_steps_counter': threading.Lock(),
+            'general_steps_counter': threading.Lock(),
+            'general_pair_steps_counter': threading.Lock(),
             'input_types': threading.RLock(),
             'output_types': threading.RLock(),
             'error_types': threading.RLock(),
+            'general_types': threading.RLock(),
+            'general_pair_types': threading.RLock(),
         }
 
     def update_seed(self, entries):
@@ -326,15 +346,20 @@ class DatasetManager:
             'seed': deepcopy(self.datasets['seed']),
             'error': deepcopy(self.datasets['error']),
             'problem': deepcopy(self.datasets['problem']),
+            'general': deepcopy(self.datasets['general']),
+            'general_pair': deepcopy(self.datasets['general_pair']),
             'error_seed': deepcopy(self.datasets['error_seed']),
             'input_steps': deepcopy(self.datasets['input_steps']),
             'output_steps': deepcopy(self.datasets['output_steps']),
             'error_steps': deepcopy(self.datasets['error_steps']),
             'problem_steps': deepcopy(self.datasets['problem_steps']),
+            'general_steps': deepcopy(self.datasets['general_steps']),
+            'general_pair_steps': deepcopy(self.datasets['general_pair_steps']),
             'input_steps_counter': deepcopy(self.datasets['input_steps_counter']),
             'output_steps_counter': deepcopy(self.datasets['output_steps_counter']),
             'error_steps_counter': deepcopy(self.datasets['error_steps_counter']),
             'problem_steps_counter': deepcopy(self.datasets['problem_steps_counter']),
+            'general_steps_counter': deepcopy(self.datasets['general_steps_counter']),
         }
 
     def add_input_batch(self, entries: List[Dict], global_step: int):
@@ -395,6 +420,65 @@ class DatasetManager:
             self.datasets['problem_steps'].extend([global_step]*len(entries))
             self.datasets['problem_steps_counter'][global_step] += len(entries)
             return len(entries)
+    
+    def add_general_batch(self, entries: List[Dict], global_step: int):
+        with self.locks['general'], self.locks['general_steps'], self.locks['general_steps_counter'], self.locks['general_types']:
+            # Process type counting for general entries
+            for entry in entries:
+                # Count question types if available
+                if 'question' in entry:
+                    try:
+                        question_type = determine_type(entry['question'])
+                        self.count_element(entry['question'], question_type, 'general')
+                    except:
+                        pass
+                # Count answer types if available
+                if 'answer' in entry:
+                    try:
+                        answer_type = determine_type(entry['answer'])
+                        self.count_element(entry['answer'], answer_type, 'general')
+                    except:
+                        pass
+                # Count generation types if available
+                if 'generation' in entry:
+                    try:
+                        generation_type = determine_type(entry['generation'])
+                        self.count_element(entry['generation'], generation_type, 'general')
+                    except:
+                        pass
+
+            self.datasets['general'].extend(entries)
+            self.datasets['general_steps'].extend([global_step]*len(entries))
+            self.datasets['general_steps_counter'][global_step] += len(entries)
+            return len(entries)
+        
+    def add_general_pair_batch(self, entries: List[Dict], global_step: int):
+        with self.locks['general_pair'], self.locks['general_pair_steps'], self.locks['general_pair_steps_counter'], self.locks['general_pair_types']:
+            # Process type counting for general pair entries
+            for entry in entries:
+                if 'question' in entry:
+                    try:
+                        question_type = determine_type(entry['question'])
+                        self.count_element(entry['question'], question_type, 'general_pair')
+                    except:
+                        pass
+                if 'answer' in entry:
+                    try:
+                        answer_type = determine_type(entry['answer'])
+                        self.count_element(entry['answer'], answer_type, 'general_pair')
+                    except:
+                        pass
+                if 'generation' in entry:
+                    try:
+                        generation_type = determine_type(entry['generation'])
+                        self.count_element(entry['generation'], generation_type, 'general_pair')
+                    except:
+                        pass
+
+            self.datasets['general_pair'].extend(entries)
+            self.datasets['general_pair_steps'].extend([global_step]*len(entries))
+            self.datasets['general_pair_steps_counter'][global_step] += len(entries)
+            return len(entries)
 
     def get_snippets(self) -> List[Dict]:
         # get the snippets from input and output datasets merged together
@@ -445,6 +529,14 @@ class DatasetManager:
             assert len(self.datasets['problem']) == len(self.datasets['problem_steps']), \
                 "Problem data/steps mismatch!"
             return list(zip(deepcopy(self.datasets['problem']), self.datasets['problem_steps']))
+        elif name=="general":
+            assert len(self.datasets['general']) == len(self.datasets['general_steps']), \
+                "General data/steps mismatch!"
+            return list(zip(deepcopy(self.datasets['general']), self.datasets['general_steps']))
+        elif name == "general_pair":
+            assert len(self.datasets['general_pair']) == len(self.datasets['general_pair_steps']), \
+                "General pair data/steps mismatch!"
+            return list(zip(deepcopy(self.datasets['general_pair']), self.datasets['general_pair_steps']))
         raise ValueError(f"Invalid dataset name: {name}")
 
     def get_steps_dataset(self, name) -> List[int]:
@@ -456,6 +548,10 @@ class DatasetManager:
             return self.datasets['error_steps']
         elif name == 'problem':
             return self.datasets['problem_steps']
+        elif name == 'general':
+            return self.datasets['general_steps']
+        elif name == 'general_pair':
+            return self.datasets['general_pair_steps']
         raise ValueError(f"Invalid dataset name: {name}")
 
     def truncate_datasets(self, max_length: int, name: str) -> Tuple[int, int]:
@@ -497,6 +593,18 @@ class DatasetManager:
                 self.datasets['problem'] = self.datasets['problem'][:max_length]
                 truncated_length = before_length - len(self.datasets['problem'])
                 return truncated_length, before_length
+        elif name == 'general':
+            with self.locks['general']:
+                before_length = len(self.datasets['general'])
+                self.datasets['general'] = self.datasets['general'][:max_length]
+                truncated_length = before_length - len(self.datasets['general'])
+                return truncated_length, before_length
+        elif name == 'general_pair':
+            with self.locks['general_pair']:
+                before_length = len(self.datasets['general_pair'])
+                self.datasets['general_pair'] = self.datasets['general_pair'][:max_length]
+                truncated_length = before_length - len(self.datasets['general_pair'])
+                return truncated_length, before_length
         else:
             raise ValueError(f"Invalid dataset name: {name}")
 
@@ -515,8 +623,9 @@ class DatasetManager:
             'input': [], 'output': [], 'seed': [], 'error': [], 'problem': [],
             'error_seed': [], 'input_steps': [], 'output_steps': [], 'error_steps': [],
             'problem_steps': [], 'input_steps_counter': defaultdict(int),
-            'output_steps_counter': defaultdict(int), 'error_steps_counter': defaultdict(int),
-            'problem_steps_counter': defaultdict(int)
+            'general': [], 'general_pair': [], 'general_steps': [], 'general_pair_steps': [], 'general_steps_counter': defaultdict(int),
+            'output_steps_counter': defaultdict(int), 'error_steps_counter': defaultdict(int), 'general_pair_steps_counter': defaultdict(int),
+            'problem_steps_counter': defaultdict(int), 
         }
         
         # Extract datasets
@@ -531,8 +640,8 @@ class DatasetManager:
 
         # Then load type counters if available
         if 'type_counters' in data:
-            with self.locks['input_types'], self.locks['output_types'], self.locks['error_types']:
-                for counter_key in ['input_types', 'output_types', 'error_types']:
+            with self.locks['input_types'], self.locks['output_types'], self.locks['error_types'], self.locks['general_types']:
+                for counter_key in ['input_types', 'output_types', 'error_types', 'general_types']:
                     if counter_key in data['type_counters']:
                         self.type_counters[counter_key] = defaultdict(create_default_dict)
                         for type_name, values in data['type_counters'][counter_key].items():
@@ -556,7 +665,9 @@ class DatasetManager:
         return {
             'input_types': self.get_type_statistics('input_types'),
             'output_types': self.get_type_statistics('output_types'),
-            'error_types': self.get_type_statistics('error_types')
+            'error_types': self.get_type_statistics('error_types'),
+            'general_types': self.get_type_statistics('general_types'),
+            'general_pair_types': self.get_type_statistics('general_pair_types'),
         }
 
     def get_all_data_with_type_counters(self) -> Dict:
@@ -567,6 +678,8 @@ class DatasetManager:
                 'input_types': deepcopy(self.type_counters['input_types']),
                 'output_types': deepcopy(self.type_counters['output_types']),
                 'error_types': deepcopy(self.type_counters['error_types']),
+                'general_types': deepcopy(self.type_counters['general_types']),
+                'general_pair_types': deepcopy(self.type_counters['general_pair_types']),
             }
         })
         return all_data
@@ -580,6 +693,1105 @@ class DatasetManager:
         counter_type = f"{counter_key}_types"
         with self.locks[counter_type]:
             self.type_counters[counter_type][element_type][element] += 1
+
+class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
+
+    def __init__(self, past_epoch_window: int = 10, benchmark_reward_fn=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # assert self.config.actor_rollout_ref.rollout.n == 1, "GeneralIO only supports n=1 for now"
+
+        self._past_epoch_window = past_epoch_window
+        self.dataset_manager = DatasetManager.remote()
+        self._last_cleanup_step = 0
+        self._cleanup_frequency = self.config.azr.get('executor_cleanup_frequency', 5)
+        self.benchmark_reward_fn = benchmark_reward_fn
+        
+        # Initialize prompt manager for dynamic prompt improvements
+        self.prompt_manager = PromptManager(
+            config=self.config,
+            output_dir=self.config.trainer.default_local_dir + "/prompt_history"
+        )
+        
+        # Initialize actor-driven prompt optimizer
+        self.enable_actor_optimization = getattr(self.config.azr, 'enable_actor_prompt_optimization', False)
+        if self.enable_actor_optimization:
+            # Get infer_together configuration from reward_fn config
+            infer_together = getattr(self.config.reward_fn, 'infer_together', False)
+            
+            self.actor_prompt_optimizer = ActorPromptOptimizer(
+                model_interface=self._create_model_interface(),
+                prompt_manager=self.prompt_manager,
+                output_dir=self.config.trainer.default_local_dir + "/actor_prompt_optimization",
+                infer_together=infer_together
+            )
+            self.safe_prompt_updater = SafePromptUpdater(self.prompt_manager)
+            print(f"[DEBUG] GeneralIORayPPOTrainer: Initialized with actor prompt optimization ENABLED (infer_together={infer_together})")
+        else:
+            self.actor_prompt_optimizer = None
+            self.safe_prompt_updater = None
+            print(f"[DEBUG] GeneralIORayPPOTrainer: Actor prompt optimization DISABLED")
+            
+        # Set prompt_manager for reward functions if available
+        if hasattr(self, 'prompt_manager') and self.prompt_manager is not None:
+            if hasattr(self.reward_fn, 'set_prompt_manager'):
+                self.reward_fn.set_prompt_manager(self.prompt_manager)
+                print(f"[DEBUG] GeneralIORayPPOTrainer: Set prompt_manager for reward_fn")
+            
+            if hasattr(self, 'val_reward_fn') and self.val_reward_fn is not None and hasattr(self.val_reward_fn, 'set_prompt_manager'):
+                self.val_reward_fn.set_prompt_manager(self.prompt_manager)
+                print(f"[DEBUG] GeneralIORayPPOTrainer: Set prompt_manager for val_reward_fn")
+                
+            if hasattr(self, 'benchmark_reward_fn') and self.benchmark_reward_fn is not None and hasattr(self.benchmark_reward_fn, 'set_prompt_manager'):
+                self.benchmark_reward_fn.set_prompt_manager(self.prompt_manager)
+                print(f"[DEBUG] GeneralIORayPPOTrainer: Set prompt_manager for benchmark_reward_fn")
+            
+        print(f"[DEBUG] GeneralIORayPPOTrainer: Initialized with prompt manager")
+    
+    def _create_model_interface(self):
+        """Create a model interface for prompt optimization"""
+        class ActorModelInterface:
+            def __init__(self, trainer):
+                self.trainer = trainer
+                
+            def generate(self, prompt_text: str, max_length: int = 1024) -> str:
+                """Generate text using the actor rollout worker group"""
+                try:
+                    # Tokenize input
+                    tokenizer = self.trainer.tokenizer
+                    inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True, max_length=1024)
+                    
+                    # Get tensor model parallel size to ensure proper batching
+                    tensor_parallel_size = getattr(self.trainer.config.actor_rollout_ref.rollout, 'tensor_model_parallel_size', 1)
+                    
+                    # Duplicate the input to match tensor parallel size for proper chunking
+                    # This ensures DataProto.chunk() can divide evenly
+                    batch_dict = {
+                        'input_ids': inputs['input_ids'].repeat(tensor_parallel_size, 1),
+                        'attention_mask': inputs['attention_mask'].repeat(tensor_parallel_size, 1),
+                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0).repeat(tensor_parallel_size, 1)
+                    }
+                    
+                    print(f"[DEBUG] ActorModelInterface: Created batch with size {batch_dict['input_ids'].shape[0]} for {tensor_parallel_size} tensor parallel workers")
+                    
+                    # Convert to DataProto
+                    gen_batch = DataProto.from_single_dict(batch_dict)
+                    
+                    # Generate using actor_rollout_wg
+                    with torch.no_grad():
+                        gen_output = self.trainer.actor_rollout_wg.generate_sequences(gen_batch)
+                    
+                    # Extract generated text (take the first result since all inputs are identical)
+                    if 'responses' in gen_output.batch:
+                        response_ids = gen_output.batch['responses'][0]  # Take first response
+                        response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
+                        return response_text.strip()
+                    else:
+                        print("[DEBUG] ActorModelInterface: No 'responses' in generation output")
+                        return ""
+                    
+                except Exception as e:
+                    print(f"[DEBUG] ActorModelInterface: Generation error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return ""
+        
+        return ActorModelInterface(self)
+    
+    def cleanup(self):
+        gc.collect()
+    
+    def _is_general_task(self) -> bool:
+        """Check if current task type is general"""
+        return getattr(self.config.azr, 'task_type', 'code') == 'general'
+
+    def _run_benchmark_evaluation(self) -> dict:
+        """Run benchmark evaluation for general tasks"""
+        if self.benchmark_reward_fn is None:
+            PrettyPrinter.status("BENCHMARK", "Benchmark reward function not available", "warn")
+            return {}
+        
+        try:
+            # Call the parent class method that's already implemented
+            metrics = super()._run_benchmark_evaluation()
+            PrettyPrinter.status("BENCHMARK", f"Completed benchmark evaluation with {len(metrics)} metrics", "success")
+            if metrics:
+                PrettyPrinter.status("BENCHMARK", f"Metrics keys: {list(metrics.keys())[:5]}", "info")
+            return metrics
+        except Exception as e:
+            PrettyPrinter.status("BENCHMARK", f"Benchmark evaluation failed: {str(e)}", "error")
+            import traceback
+            traceback.print_exc()
+            return {}
+    
+    def _create_train_gen_dataloader(
+        self,
+        problem_type: str,
+        data_len: int,
+        dataset_key: str = None,
+        seeding: bool = False,
+    ) -> DataLoader:
+        if dataset_key is None:
+            dataset_key = "general"
+        io_data = ray.get(self.dataset_manager.get_dataset.remote(dataset_key))
+
+        parquet_path = (self._code_dir / f'train_gen_{problem_type}.parquet').as_posix()
+        os.makedirs(os.path.dirname(parquet_path), exist_ok=True)
+
+        # Handle weights strategy
+        if not seeding:
+            weights = [1.0] * len(io_data)
+        elif dataset_key == 'seed':
+            weights = None
+        else:
+            weights = [1.0] * len(io_data)
+
+        get_gen_general_io_data(
+            io_data=io_data,
+            io_n=self.config.azr.data_selection_strategy.io_n,
+            target_data_len=data_len,
+            content_max_length=self.config.azr.data_selection_strategy.content_max_length,
+            output_path=parquet_path,
+            split='train',
+            tokenizer=self.tokenizer, 
+            weights=weights,
+            include_references=self.config.azr.reward.generation_reward_config.include_references,
+            prompt_manager=self.prompt_manager,  # Pass prompt manager
+        )
+
+        gen_train_dataset = RLHFDataset(
+            parquet_files=parquet_path,
+            tokenizer=self.tokenizer,
+            prompt_key=self.config.data.prompt_key,
+            max_prompt_length=self.config.data.max_prompt_length,
+            filter_prompts=True,
+            return_raw_chat=self.config.data.get('return_raw_chat', False),
+            truncation='error',
+            extra_source_key=f"gen_{problem_type}_train"
+        )
+
+        if self.config.data.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+            sampler = RandomSampler(gen_train_dataset, generator=train_dataloader_generator)
+        else:
+            sampler = SequentialSampler(gen_train_dataset)
+
+        return iter(DataLoader(
+            dataset=gen_train_dataset,
+            batch_size=self.config.data.train_batch_size,
+            drop_last=True,
+            collate_fn=collate_fn,
+            sampler=sampler
+        ))
+    
+    def _create_train_pred_dataloader(self, problem_type: str, data_len: int) -> DataLoader:
+
+        if problem_type not in {'general'}:
+            raise ValueError(f"Invalid problem type for prediction: {problem_type}")
+        dataset_key = "general"
+        full_dataset = ray.get(self.dataset_manager.get_dataset.remote(dataset_key))
+        
+        strategy = self.config.azr.pred_data_mix_strategy
+
+        if strategy == "step":
+            # Get entries with their creation steps
+            entries_with_steps = ray.get(self.dataset_manager.get_dataset_with_steps.remote(dataset_key))
+            if not entries_with_steps:
+                selected_data = []
+            else:
+                entries, steps = zip(*entries_with_steps)
+                # Calculate inverse step weights (newer entries get higher weight)
+                selected_indices = random.choices(
+                    range(len(entries)),
+                    weights=steps,
+                    k=min(data_len, len(entries))
+                )
+                selected_data = [entries[i] for i in selected_indices]
+        elif strategy == "uniform_total":
+            selected_data = random.sample(full_dataset, min(len(full_dataset), data_len))
+        elif strategy == "max_new":
+            total_recent = ray.get(self.dataset_manager.get_recent_additions.remote(
+                dataset_key, self.global_steps, self._past_epoch_window
+            ))
+            new_programs = full_dataset[-total_recent:] if total_recent > 0 else []
+            new_samples = random.sample(new_programs, min(len(new_programs), data_len))
+            remaining = data_len - len(new_samples)
+            selected_data = new_samples + random.sample(full_dataset, remaining)
+        elif strategy == "half_new":
+            total_recent = ray.get(self.dataset_manager.get_recent_additions.remote(
+                dataset_key, self.global_steps, self._past_epoch_window
+            ))
+            new_programs = full_dataset[-total_recent:] if total_recent > 0 else []
+            new_count = min(len(new_programs), data_len//2)
+            base_count = data_len - new_count
+            selected_data = random.sample(new_programs, new_count) + random.sample(full_dataset, base_count)
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+        parquet_path = (self._code_dir / f'train_pred_{problem_type}.parquet').as_posix()
+
+        get_pred_general_io_data(
+            io_data=selected_data,
+            target_data_len=data_len,
+            content_max_length=self.config.azr.data_selection_strategy.content_max_length,
+            output_path=parquet_path,
+            split='train',
+            tokenizer=self.tokenizer,
+            prompt_manager=self.prompt_manager,  # Pass prompt manager
+        )
+
+        general_pred_train_dataset = RLHFDataset(parquet_files=parquet_path,
+                                         tokenizer=self.tokenizer,
+                                         prompt_key=self.config.data.prompt_key,
+                                         max_prompt_length=self.config.data.max_prompt_length,
+                                         filter_prompts=True,
+                                         return_raw_chat=self.config.data.get('return_raw_chat', False),
+                                         truncation='error',
+                                         extra_source_key=f"pred_{problem_type}_train")
+        with open('general_pred_train_dataset.txt', 'a') as f:
+            f.write(f"Problem type: {problem_type}, Dataset size: {len(general_pred_train_dataset)}\n")
+            f.write(f"Dataset: {general_pred_train_dataset}\n")
+        # use sampler for better ckpt resume
+        if self.config.data.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+            sampler = RandomSampler(data_source=general_pred_train_dataset, generator=train_dataloader_generator)
+        else:
+            sampler = SequentialSampler(data_source=general_pred_train_dataset)
+
+        general_pred_train_dataloader = DataLoader(dataset=general_pred_train_dataset,
+                                           batch_size=self.config.data.train_batch_size,
+                                           drop_last=True,
+                                           collate_fn=collate_fn,
+                                           sampler=sampler)
+        print(general_pred_train_dataloader)
+        assert len(general_pred_train_dataloader) >= 1
+        return iter(general_pred_train_dataloader)
+
+    def _create_train_judge_dataloader(self, problem_type: str, data_len: int) -> DataLoader:
+        if problem_type not in {'general'}:
+            raise ValueError(f"Invalid problem type for judge: {problem_type}")
+        dataset_key = "general_pair"
+        # use pair data of question and answer for judging
+        full_dataset = ray.get(self.dataset_manager.get_dataset.remote(dataset_key))
+
+        strategy = self.config.azr.judge_data_mix_strategy
+
+        if strategy == "step":
+            entries_with_steps = ray.get(self.dataset_manager.get_dataset_with_steps.remote(dataset_key))
+            if not entries_with_steps:
+                selected_data = []
+            else:
+                entries, steps = zip(*entries_with_steps)
+                selected_indices = random.choices(
+                    range(len(entries)),
+                    weights=steps,
+                    k=min(data_len, len(entries))
+                )
+                selected_data = [entries[i] for i in selected_indices]
+        elif strategy == "uniform_total":
+            selected_data = random.sample(full_dataset, min(len(full_dataset), data_len))
+        elif strategy == "max_new":
+            total_recent = ray.get(self.dataset_manager.get_recent_additions.remote(
+                dataset_key, self.global_steps, self._past_epoch_window
+            ))
+            new_programs = full_dataset[-total_recent:] if total_recent > 0 else []
+            new_samples = random.sample(new_programs, min(len(new_programs), data_len))
+            remaining = data_len - len(new_samples)
+            selected_data = new_samples + random.sample(full_dataset, remaining)
+        elif strategy == "half_new":
+            total_recent = ray.get(self.dataset_manager.get_recent_additions.remote(
+                dataset_key, self.global_steps, self._past_epoch_window
+            ))
+            new_programs = full_dataset[-total_recent:] if total_recent > 0 else []
+            new_count = min(len(new_programs), data_len//2)
+            base_count = data_len - new_count
+            selected_data = random.sample(new_programs, new_count) + random.sample(full_dataset, base_count)
+        else:
+            raise ValueError(f"Unknown strategy: {strategy}")
+
+        parquet_path = (self._code_dir / f'train_judge_{problem_type}.parquet').as_posix()
+
+        get_judge_general_io_data(
+            io_data=selected_data,
+            target_data_len=data_len,
+            content_max_length=self.config.azr.data_selection_strategy.content_max_length,
+            output_path=parquet_path,
+            split='train',
+            tokenizer=self.tokenizer,
+            prompt_manager=self.prompt_manager,  # Pass prompt manager
+        )
+
+        judge_train_dataset = RLHFDataset(
+            parquet_files=parquet_path,
+            tokenizer=self.tokenizer,
+            prompt_key=self.config.data.prompt_key,
+            max_prompt_length=self.config.data.max_prompt_length,
+            filter_prompts=True,
+            return_raw_chat=self.config.data.get('return_raw_chat', False),
+            truncation='error',
+            extra_source_key=f"judge_{problem_type}_train"
+        )
+        with open('general_judge_train_dataset.txt', 'a') as f:
+            f.write(f"Problem type: {problem_type}, Dataset size: {len(judge_train_dataset)}\n")
+        # use sampler for better ckpt resume
+        if self.config.data.shuffle:
+            train_dataloader_generator = torch.Generator()
+            train_dataloader_generator.manual_seed(self.config.data.get('seed', 1))
+            sampler = RandomSampler(data_source=judge_train_dataset, generator=train_dataloader_generator)
+        else:
+            sampler = SequentialSampler(data_source=judge_train_dataset)
+        
+        # Handle small datasets by adjusting batch_size and drop_last
+        actual_batch_size = self.config.data.train_batch_size
+        drop_last = True
+        
+        # If dataset is smaller than batch_size, adjust parameters
+        if len(judge_train_dataset) < self.config.data.train_batch_size:
+            if len(judge_train_dataset) == 0:
+                PrettyPrinter.status("ERROR", f"Judge dataset is completely empty for {problem_type}. Judge training will be skipped.", "error")
+                return None
+            else:
+                # Use smaller batch size and don't drop last incomplete batch
+                actual_batch_size = min(self.config.data.train_batch_size, len(judge_train_dataset))
+                drop_last = False
+                PrettyPrinter.status("WARN", f"Judge dataset size ({len(judge_train_dataset)}) is smaller than batch_size ({self.config.data.train_batch_size}). Using batch_size={actual_batch_size} and drop_last=False", "warn")
+        
+        judge_train_dataloader = DataLoader(dataset=judge_train_dataset,
+                                           batch_size=actual_batch_size,
+                                           drop_last=drop_last,
+                                           collate_fn=collate_fn,
+                                           sampler=sampler)
+        print(judge_train_dataloader)
+        
+        # Verify dataloader has data when dataset is non-empty
+        if len(judge_train_dataset) > 0:
+            assert len(judge_train_dataloader) >= 1, f"Judge dataloader has length {len(judge_train_dataloader)} but dataset has {len(judge_train_dataset)} items (batch_size={actual_batch_size}, drop_last={drop_last})"
+        else:
+            PrettyPrinter.status("ERROR", f"Judge dataset is completely empty for {problem_type}. Judge training will be skipped.", "error")
+            return None
+        
+        return iter(judge_train_dataloader)
+    
+    def _compute_batch(self, batch: DataProto, metrics: dict, timing_raw: dict, problem_type: str ) -> tuple[DataProto, dict]:
+        PrettyPrinter.section_header(f"Computing batch for {problem_type}")
+        # pop those keys for generation
+        gen_batch = batch.pop(batch_keys=['input_ids', 'attention_mask', 'position_ids'])
+
+        # generate a batch
+        with _timer(f'gen/{problem_type}', timing_raw):
+            gen_batch_output = self.actor_rollout_wg.generate_sequences(gen_batch)
+
+        batch.non_tensor_batch['uid'] = np.array([str(uuid.uuid4()) for _ in range(len(batch.batch))],
+                                                dtype=object)
+        # repeat to align with repeated responses in rollout
+        batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
+        batch = batch.union(gen_batch_output)
+
+        # balance the number of valid tokens on each dp rank
+        self._balance_batch(batch, metrics=metrics)
+
+        # compute global_valid tokens
+        batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
+
+        # recompute old_log_probs
+        with _timer(f'old_log_prob/{problem_type}', timing_raw):
+            old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+            batch = batch.union(old_log_prob)
+
+        if self.use_reference_policy:
+            with _timer(f'ref/{problem_type}', timing_raw):
+                ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                batch = batch.union(ref_log_prob)
+
+        # compute values
+        if self.use_critic:
+            with _timer(f'values/{problem_type}', timing_raw):
+                values = self.critic_wg.compute_values(batch)
+                batch = batch.union(values)
+
+        with _timer(f'adv/{problem_type}', timing_raw):
+            if self.use_rm:
+                reward_tensor = self.rm_wg.compute_rm_score(batch)
+                batch = batch.union(reward_tensor)
+            
+            general_type_counters = ray.get(self.dataset_manager.get_type_statistics.remote('general_types'))
+    
+            # make sure actor_rollout_wg n > 1
+            if problem_type.startswith('gen'):
+                reward_fn_kwargs = {
+                    'data': batch,
+                    'problem_type': problem_type,
+                    'rollout_actor_wg': self.actor_rollout_wg, # need this to estimate difficulty reward
+                    'n_samples': self.config.azr.reward.n_samples,
+                    'general_type_counters': general_type_counters,
+                }
+            elif problem_type.startswith('pred'):
+                reward_fn_kwargs = {
+                    'data': batch, 
+                    'rollout_actor_wg': self.actor_rollout_wg,
+                    'problem_type': problem_type,
+                }
+            elif problem_type.startswith('judge'):
+                reward_fn_kwargs = {
+                    'data': batch,
+                    'rollout_actor_wg': self.actor_rollout_wg,
+                    'problem_type': problem_type,
+                }
+
+            with _timer(f'reward_fn/{problem_type}', timing_raw):
+                PrettyPrinter.status("REWARD", f"Computing rewards for {problem_type}...", "info")
+                reward_tensor, train_metrics, valid_data = self.reward_fn(**reward_fn_kwargs)
+                PrettyPrinter.status("REWARD", f"Found {len(valid_data) if valid_data else 0} valid data for {problem_type}", "success")
+
+            # Log new questions, for now pairs will not be logged
+            if valid_data and self.config.azr.random_print_max_programs > 0 and problem_type.startswith('gen'):
+                PrettyPrinter.section_header(f"New {problem_type} Questions")
+                max_print = min(self.config.azr.random_print_max_programs, len(valid_data))
+                for question in random.sample(valid_data, max_print):
+                    PrettyPrinter.status(f"PROBLEM TYPE", problem_type, "info")
+                    PrettyPrinter.status("QUESTION", question['question'], "info")
+                    PrettyPrinter.status("THOUGHT", question['thought'], "info")
+                    PrettyPrinter.status("GENERATION", question['generation'], "info")
+                    print("\n" + "-"*80 + "\n")
+            
+            if problem_type.startswith('gen'):
+                ray.get(self.dataset_manager.add_general_batch.remote(valid_data, self.global_steps)) if valid_data else None
+            if problem_type.startswith('pred'):
+                ray.get(self.dataset_manager.add_general_pair_batch.remote(valid_data, self.global_steps)) if valid_data else None
+                # valid_data are actually question-answer pairs here
+
+            if self.config.azr.data_selection_strategy.max_questions is not None :
+                truncated_length, before_length = ray.get(self.dataset_manager.truncate_datasets.remote(self.config.azr.data_selection_strategy.max_questions, 'general'))
+                PrettyPrinter.status("DATA", f"Truncated {truncated_length} questions from general dataset, max questions is {self.config.azr.data_selection_strategy.max_questions}, dataset size was {before_length} before truncation", "info")
+           
+            train_metrics = {f'{problem_type}/{k}': np.mean(v) for k, v in train_metrics.items()}
+            # log the number of valid programs added to the dataset
+            if problem_type.startswith('gen'):
+                if problem_type.endswith('general'):
+                    dataset_key = 'general'
+                else:
+                    raise ValueError(f'Invalid problem type: {problem_type}')
+                train_metrics[f'{problem_type}/num_valid_questions'] = ray.get(
+                    self.dataset_manager.get_recent_additions.remote(
+                        dataset_key, self.global_steps, self._past_epoch_window
+                    )
+                )
+            if problem_type.startswith('pred'):
+                if problem_type.endswith('general'):
+                    dataset_key = 'general_pair'
+                else:
+                    raise ValueError(f'Invalid problem type: {problem_type}')
+                train_metrics[f'{problem_type}/num_valid_pairs'] = ray.get(
+                    self.dataset_manager.get_recent_additions.remote(
+                        dataset_key, self.global_steps, self._past_epoch_window
+                    )
+                )
+            metrics.update(train_metrics)
+            batch.batch['token_level_scores'] = reward_tensor
+
+            if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                # [TODO]: is this correct?
+                batch, kl_metrics = apply_kl_penalty(batch,
+                                                kl_ctrl=self.kl_ctrl,
+                                                kl_penalty=self.config.algorithm.kl_penalty)
+                metrics.update(kl_metrics)
+            else:
+                batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+
+            batch = compute_advantage(batch,
+                                    adv_estimator=self.config.algorithm.adv_estimator,
+                                    gamma=self.config.algorithm.gamma,
+                                    lam=self.config.algorithm.lam,
+                                    num_repeat=self.config.actor_rollout_ref.rollout.n)
+
+        gc.collect()
+        return batch, metrics
+
+    def _init_seed_dataset(self):
+        """Manually load and convert 100 seed examples from MATH, HumanEval, or MT-Bench into IO format."""
+        PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (with full io_item structure)")
+
+        examples = []
+        examples_pair = []
+        split = "train"  # or "seed" if you prefer
+
+        # Track global index
+        idx = 0
+
+        # ---------- FusionBench ----------
+        try:
+            general_data = load_dataset("ulab-ai/FusionBench","train", split="data")
+            general_samples = random.sample(list(general_data), k=min(1000, len(general_data)))
+            for item in general_samples:
+                question = item["query"]
+                answer = item["ground_truth"]
+                io_prompt = f"{question}"
+                chosen_references = []
+                io_item = {
+                    "data_source": 'gen_general',
+                    "prompt": [{
+                        "role": "user",
+                        "content": io_prompt,
+                    }],
+                    "question": question,
+                    "ability": "general",
+                    "reward_model": {
+                        "style": "rule",
+                        "ground_truth": answer,
+                    },
+                    "extra_info": {
+                        'split': split,
+                        'index': idx,
+                        'metric': 'gen_general',
+                        'chosen_references': chosen_references,
+                    }
+                }
+                io_item_pair = {
+                    "data_source": 'gen_general',
+                    "prompt": [{
+                        "role": "user",
+                        "content": io_prompt,
+                    }],
+                    "question": question,
+                    "answer": answer,
+                    "ability": "general",
+                    "reward_model": {
+                        "style": "rule",
+                        "ground_truth": answer,
+                    },
+                    "extra_info": {
+                        'split': split,
+                        'index': idx,
+                        'metric': 'gen_general',
+                        'chosen_references': chosen_references,
+                    }
+                }
+                examples.append(io_item)
+                examples_pair.append(io_item_pair)
+                idx += 1
+            PrettyPrinter.status("INFO", f"Loaded {len(general_samples)} FusionBench examples", "info")
+        except Exception as e:
+            PrettyPrinter.status("WARNING", f"Failed to load FusionBench: {str(e)}", "warn")
+
+        # Shuffle and truncate
+        random.shuffle(examples)
+        random.shuffle(examples_pair)
+        seed_examples = examples[:1000]
+
+        # Upload to ray
+        ray.get(self.dataset_manager.add_general_batch.remote(seed_examples, self.global_steps))
+        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(seed_examples)} examples", "success")
+
+        ray.get(self.dataset_manager.add_general_pair_batch.remote(examples_pair, self.global_steps))
+        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(examples_pair)} examples pairs", "success")
+
+    def fit(self):
+        """
+        The training loop of PPO.
+        The driver process only need to call the compute functions of the worker group through RPC to construct the PPO dataflow.
+        The light-weight advantage computation is done on the driver process.
+        """
+
+        logger = ReasonRLTracking(
+            project_name=self.config.trainer.project_name,
+            experiment_name=self.config.trainer.experiment_name,
+            default_backend=self.config.trainer.logger,
+            config=OmegaConf.to_container(self.config, resolve=True),
+            tags=self.config.trainer.wandb_tags,
+            resume="must" if self.config.trainer.resume_mode == 'auto' and \
+                self.config.trainer.wandb_run_id is not None else False,  # Add resume flag
+            run_id=self.config.trainer.wandb_run_id \
+                if self.config.trainer.wandb_run_id is not None else None  # Pass existing run ID
+        )
+
+        self.global_steps = 0
+
+        # load checkpoint before doing anything
+        self._load_checkpoint()
+
+        # base model chat template
+        if self.config.actor_rollout_ref.model.pretrained_tokenizer:
+            self.tokenizer.chat_template = "{%- for message in messages -%}{{- '\n' if not loop.first -}}{{- message['content'] -}}{%- endfor -%}"
+
+        # currently, we only support validation using the reward_function.
+        if self.config.trainer.get('val_before_train', True) and self.global_steps == 0:
+            # PrettyPrinter.section_header(f"Starting Initial Validation")
+            # val_metrics = self._validate()
+            # PrettyPrinter.table(
+            #     ["Metric", "Value"],
+            #     [[k, v] for k, v in val_metrics.items()],
+            #     title="Initial Validation Metrics"
+            # )
+            # logger.log(data=val_metrics, step=self.global_steps)
+            # if self.config.trainer.get('val_only', False):
+            #     return
+            if self._is_general_task():
+                PrettyPrinter.status("BENCHMARK", "Running benchmark evaluation for general task", "info")
+                benchmark_metrics = self._run_benchmark_evaluation()
+                
+                # Debug: Print logger backends and metrics
+                PrettyPrinter.status("DEBUG", f"Logger backends: {list(logger.logger.keys())}", "info")
+                PrettyPrinter.status("DEBUG", f"Benchmark metrics type: {type(benchmark_metrics)}, length: {len(benchmark_metrics)}", "info")
+                if benchmark_metrics:
+                    PrettyPrinter.status("DEBUG", f"Sample metrics: {list(benchmark_metrics.keys())[:3]}", "info")
+                
+                if benchmark_metrics:
+                    logger.log(data=benchmark_metrics, step=self.global_steps)
+                    PrettyPrinter.status("WANDB", f"Logged {len(benchmark_metrics)} benchmark metrics to step {self.global_steps}", "success")
+                else:
+                    PrettyPrinter.status("WANDB", "No benchmark metrics to log", "warn")
+                
+                PrettyPrinter.table(
+                    ["Benchmark Metric", "Value"],
+                    [[k, v] for k, v in benchmark_metrics.items()],
+                    title="Benchmark Evaluation Metrics"
+                )
+                
+                if self.config.trainer.get('val_only', False):
+                    return
+            
+
+        if self.loaded_datasets:
+            PrettyPrinter.section_header(f"Resuming training from checkpoint")
+            # print the lengths of the datasets
+            for dataset_name in ['input', 'output', 'error', 'input_steps', 'output_steps', 'error_steps', 'input_steps_counter', 'output_steps_counter', 'error_steps_counter', 'general', 'general_steps', 'general_steps_counter']:
+                PrettyPrinter.status("DATA", f"Length of {dataset_name}: {ray.get(self.dataset_manager.get_dataset_size.remote(dataset_name))}", "info")
+        else:
+            PrettyPrinter.section_header(f"Creating initial seed datasets")
+            # create init dataset
+            self._init_seed_dataset()
+
+        # we start from step 1
+        self.global_steps += 1
+        if self.config.azr.pretrain_pred_steps > 0 and self.global_steps <= self.config.azr.pretrain_pred_steps:
+            self.pretrain_pred = True
+        else:
+            self.pretrain_pred = False
+
+        while self.global_steps < self.total_training_steps:
+            PrettyPrinter.section_header(f"Training Step {self.global_steps}")
+            #if self.config.azr.data_selection_strategy.composite_scheduler.enabled:
+            #    self.scheduler_step()
+
+            PrettyPrinter.progress_bar(
+                current=self.global_steps,
+                total=self.total_training_steps,
+                label="Training Progress"
+            )
+
+            data_len = self.config.data.train_batch_size * self.config.azr.data_selection_strategy.update_iteration
+            if "general" in self.config.azr.problem_types:
+                gen_general_dataloader = self._create_train_gen_dataloader(
+                    problem_type='general',
+                    data_len=data_len,
+                    dataset_key='general',
+                )
+                pred_general_dataloader = self._create_train_pred_dataloader(
+                    problem_type='general',
+                    data_len=data_len,
+                )
+                judge_general_dataloader = self._create_train_judge_dataloader(
+                    problem_type='general',
+                    data_len=data_len,
+                )
+                # judge general data only available for judging answer currently
+                # more features like judging question may be available in the future
+                # judge training is also only available now when training alone rather than together
+                num_batches = len(gen_general_dataloader._loader) if hasattr(gen_general_dataloader, "_loader") else len(gen_general_dataloader)
+                if num_batches < self.config.azr.data_selection_strategy.update_iteration:
+                    PrettyPrinter.status("WARN", f"gen_general 只有 {num_batches} 批，不足 {self.config.azr.data_selection_strategy.update_iteration}；将重建/降级。", "warn")
+            for _ in range(self.config.azr.data_selection_strategy.update_iteration):
+                metrics = {}
+                timing_raw = {}
+                batches = {}
+                with _timer('step', timing_raw):
+                    # Clean up executor periodically
+                    if self.global_steps - self._last_cleanup_step >= self._cleanup_frequency:
+                        PrettyPrinter.section_header("Periodic Cleanup")
+                        with _timer('cleanup', timing_raw):
+                            self.cleanup()
+                        self._last_cleanup_step = self.global_steps
+
+                    if 'general' in self.config.azr.problem_types:
+                        if not self.pretrain_pred:
+                            try:
+                                batch_dict = next(gen_general_dataloader)
+                            except StopIteration:
+                                gen_general_dataloader = self._create_train_gen_dataloader(
+                                    problem_type='general',
+                                    data_len=data_len,
+                                    dataset_key='general',
+                                )
+                                batch_dict = next(gen_general_dataloader)
+                            gen_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                            gen_batch, metrics = self._compute_batch(gen_batch, metrics, timing_raw, problem_type='gen_general')
+                            if self.config.azr.train_propose:
+                                batches[f'gen_general'] = gen_batch
+                        batch_dict = next(pred_general_dataloader)
+                        pred_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                        pred_batch, metrics = self._compute_batch(pred_batch, metrics, timing_raw, problem_type='pred_general')
+                        batches[f'pred_general'] = pred_batch
+                        
+                        # Handle judge training if dataloader is available and training is enabled
+                        if judge_general_dataloader is not None and getattr(self.config.azr, 'train_judge', False):
+                            try:
+                                batch_dict = next(judge_general_dataloader)
+                                judge_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                                judge_batch, metrics = self._compute_batch(judge_batch, metrics, timing_raw, problem_type='judge_general')
+                                batches[f'judge_general'] = judge_batch
+                            except StopIteration:
+                                PrettyPrinter.status("WARN", "Judge dataloader exhausted, skipping judge training for this step", "warn")
+                        elif judge_general_dataloader is None:
+                            PrettyPrinter.status("INFO", "Judge training skipped due to insufficient paired data", "info")
+                        else:
+                            PrettyPrinter.status("INFO", "Judge training disabled in configuration", "info")
+
+                    # concatenate batches
+                    if not batches:
+                        PrettyPrinter.status("ERROR", "No batches available for training. Skipping this step.", "error")
+                        continue
+                    
+                    batch = DataProto.concat(list(batches.values()))
+
+                    PrettyPrinter.section_header(f"Starting Parameter Updates")
+                    # update critic
+                    if self.use_critic:
+                        with _timer('update_critic', timing_raw):
+                            critic_output = self.critic_wg.update_critic(batch)
+                        critic_output_metrics = reduce_metrics(critic_output.meta_info['metrics'])
+                        metrics.update(critic_output_metrics)
+
+                    # implement critic warmup
+                    if self.config.trainer.critic_warmup <= self.global_steps:
+                        with _timer('update_actor', timing_raw):
+                            actor_output = self.actor_rollout_wg.update_actor(batch)
+                        actor_output_metrics = reduce_metrics(actor_output.meta_info['metrics'])
+                        metrics.update(actor_output_metrics)
+
+                    # validate
+                    PrettyPrinter.section_header(f"Starting Validation")
+                    if self.config.trainer.test_freq > 0 and self.global_steps % self.config.trainer.test_freq == 0:
+                        with _timer('testing', timing_raw):
+                            if self._is_general_task():
+                                # For general tasks, only run benchmark evaluation
+                                val_metrics: dict = self._run_benchmark_evaluation()
+                                evaluation_type = "Benchmark"
+                            else:
+                                # For other tasks, run standard validation
+                                if self.val_reward_fn is not None:
+                                    val_metrics: dict = self._validate()
+                                    evaluation_type = "Validation"
+                                else:
+                                    val_metrics = {}
+                                    evaluation_type = "Validation"
+                            
+                            if val_metrics:
+                                PrettyPrinter.table(
+                                    ["Data Source", "Average Score"],
+                                    [[k, v] for k, v in val_metrics.items()],
+                                    title=f"{evaluation_type} Results"
+                                )
+                                
+                                # Apply prompt improvements if benchmark tracker generated them
+                                if hasattr(self, 'prompt_manager') and hasattr(self, 'benchmark_tracker'):
+                                    try:
+                                        # Get improvement prompts from benchmark tracker
+                                        improvement_prompts = self.benchmark_tracker.generate_improvement_prompts(self.global_steps)
+                                        
+                                        if improvement_prompts:
+                                            PrettyPrinter.section_header("Applying Prompt Improvements")
+                                            
+                                            # Get performance context
+                                            analysis_report = self.benchmark_tracker.generate_analysis_report(self.global_steps)
+                                            performance_context = f"Step {self.global_steps}: "
+                                            if analysis_report and "Current overall accuracy:" in analysis_report:
+                                                accuracy_lines = [line for line in analysis_report.split('\n') 
+                                                                if 'Current overall accuracy:' in line]
+                                                if accuracy_lines:
+                                                    performance_context += accuracy_lines[0].strip()
+                                            
+                                            # Use actor-driven optimization if enabled
+                                            if self.enable_actor_optimization and self.actor_prompt_optimizer:
+                                                PrettyPrinter.status("ACTOR OPTIMIZATION", "Using actor model to optimize prompts", "info")
+                                                
+                                                # Get problematic questions and performance trends
+                                                problematic_questions = self.benchmark_tracker.find_problematic_questions()
+                                                performance_trends = self.benchmark_tracker.analyze_performance_trends()
+                                                
+                                                # Let actor model optimize prompts
+                                                optimized_prompts = self.actor_prompt_optimizer.optimize_prompts_from_analysis(
+                                                    benchmark_analysis=analysis_report,
+                                                    problematic_questions=problematic_questions,
+                                                    performance_trends=performance_trends,
+                                                    step=self.global_steps
+                                                )
+                                                
+                                                # Apply optimized prompts safely
+                                                if optimized_prompts:
+                                                    self.safe_prompt_updater.update_prompts_safely(
+                                                        optimized_prompts=optimized_prompts,
+                                                        step=self.global_steps,
+                                                        performance_context=performance_context
+                                                    )
+                                                    
+                                                    PrettyPrinter.status("ACTOR OPTIMIZATION", 
+                                                                       f"Applied {len(optimized_prompts)} actor-optimized prompts", 
+                                                                       "success")
+                                                    
+                                                    for prompt_type in optimized_prompts:
+                                                        PrettyPrinter.status("  Actor Update", 
+                                                                           f"{prompt_type}: Template updated by actor model", 
+                                                                           "info")
+                                                else:
+                                                    PrettyPrinter.status("ACTOR OPTIMIZATION", 
+                                                                       "No valid optimizations generated", 
+                                                                       "warn")
+                                            else:
+                                                # Fallback to rule-based improvements
+                                                PrettyPrinter.status("RULE-BASED", "Using rule-based prompt improvements", "info")
+                                                
+                                                # Apply improvements to prompt manager
+                                                self.prompt_manager.update_prompts_from_analysis(
+                                                    improvement_prompts=improvement_prompts,
+                                                    performance_context=performance_context,
+                                                    step=self.global_steps
+                                                )
+                                                
+                                                # Log status
+                                                prompt_status = self.prompt_manager.get_prompt_status()
+                                                for prompt_type, status in prompt_status.items():
+                                                    if status['improvements_count'] > 0:
+                                                        PrettyPrinter.status("PROMPT UPDATE", 
+                                                                           f"{prompt_type}: {status['improvements_count']} improvements", 
+                                                                           "success")
+                                                        for imp in status['current_improvements'][-3:]:  # Show last 3
+                                                            PrettyPrinter.status("  Recent", imp[:100] + "...", "info")
+                                        
+                                    except Exception as e:
+                                        PrettyPrinter.status("PROMPT UPDATE", f"Error applying improvements: {e}", "error")
+                                        import traceback
+                                        traceback.print_exc()
+                        metrics.update(val_metrics)
+
+                    # print the statistics of the number of questions in the dataset
+                    if 'general' in self.config.azr.problem_types:
+                        PrettyPrinter.status(
+                            "DATA", 
+                            f"Number of questions in the general dataset: {ray.get(self.dataset_manager.get_dataset_size.remote('general'))}", 
+                            "info"
+                        )
+                    if self.config.trainer.save_freq > 0 and \
+                            self.global_steps % self.config.trainer.save_freq == 0:
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+
+                # collect metrics, separate problem types
+                all_types = []
+                if 'general' in self.config.azr.problem_types:
+                    if not self.pretrain_pred:
+                        all_types.append('gen_general')
+                    all_types.append('pred_general')
+                sep_batches = batch.chunk(len(all_types))
+                for sep_batch, problem_type in zip(sep_batches, all_types):
+                    sep_metrics = compute_data_metrics(batch=sep_batch, use_critic=self.use_critic, tokenizer=self.tokenizer)
+                    sep_metrics = {f'{problem_type}/{k}': v for k, v in sep_metrics.items()}
+                    metrics.update(sep_metrics)
+                metrics.update(compute_timing_metrics(batch=batch, timing_raw=timing_raw))
+
+                # Get and log type statistics periodically
+                type_stats = ray.get(self.dataset_manager.get_all_type_statistics.remote())
+
+                # Log summary metrics about types
+                for category, type_data in type_stats.items():
+                    # Calculate diversity metrics
+                    total_types = len(type_data)
+                    total_unique_values = sum(stats["total_unique"] for stats in type_data.values())
+                    total_instances = sum(stats["total_count"] for stats in type_data.values())
+
+                    # Add to metrics
+                    metrics[f"types/{category}/distinct_types"] = total_types
+                    metrics[f"types/{category}/total_unique_values"] = total_unique_values
+                    metrics[f"types/{category}/total_instances"] = total_instances
+
+                    # Per-type metrics
+                    for type_name, stats in type_data.items():
+                        metrics[f"types/{category}/{type_name}/unique_count"] = stats["total_unique"]
+                        metrics[f"types/{category}/{type_name}/total_count"] = stats["total_count"]
+
+                # Print type statistics summary
+                PrettyPrinter.section_header("Type Statistics Summary")
+                for category, type_data in type_stats.items():
+                    category_display = {
+                        'input_types': 'Input Types',
+                        'output_types': 'Output Types',
+                        'error_types': 'Error Types',
+                    }.get(category, category)
+
+                    PrettyPrinter.status(category_display.upper(), f"Total types: {len(type_data)}", "info")
+                    for type_name, stats in sorted(type_data.items(), 
+                                                    key=lambda x: x[1]['total_unique'], 
+                                                    reverse=True)[:5]:  # Show top 5 by unique count
+                        PrettyPrinter.status(
+                            f"  {type_name}", 
+                            f"Unique: {stats['total_unique']}, Total: {stats['total_count']}", 
+                            "info"
+                        )
+                        if stats['examples']:
+                            example = stats['examples'][0]
+                            if len(example) > 100:
+                                example = example[:97] + "..."
+                            PrettyPrinter.status("    Example", example, "info")
+
+                PrettyPrinter.table(
+                    ["Category", "Value"],
+                    [[k, v] for k, v in metrics.items()],
+                    title="Step Metrics"
+                )
+
+                logger.log(data=metrics, step=self.global_steps)
+
+                if self.global_steps >= self.config.azr.pretrain_pred_steps:
+                    self.pretrain_pred = False
+
+                self.global_steps += 1
+
+                gc.collect()
+
+                if self.global_steps >= self.total_training_steps:
+
+                    # perform validation after training
+                    if self.val_reward_fn is not None:
+                        PrettyPrinter.section_header(f"Starting Final Validation")
+                        val_metrics = self._validate()
+                        PrettyPrinter.table(
+                            ["Data Source", "Average Score"],
+                            [[k, v] for k, v in val_metrics.items()],
+                            title="Final Validation Results"
+                        )
+                        logger.log(data=val_metrics, step=self.global_steps)
+                    if self.config.trainer.save_freq > 0 and \
+                            (self.global_steps - 1) % self.config.trainer.save_freq != 0:
+                        with _timer('save_checkpoint', timing_raw):
+                            self._save_checkpoint()
+                    return
+                
+    def _save_datasets(self, save_dir: Path):
+        """Save input/output datasets as JSONL files"""
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # get all datasets and type counters
+        datasets_with_types = ray.get(self.dataset_manager.get_all_data_with_type_counters.remote())
+
+        # save datasets
+        pickle.dump(datasets_with_types, open(save_dir / 'datasets.pkl', 'wb'))
+        PrettyPrinter.status("SAVE", f"Saved datasets and type counters to {save_dir}", "success")
+
+    def _load_datasets(self, save_dir: Path):
+        """Load input/output datasets from JSONL files"""
+        datasets_with_types = pickle.load(open(Path(save_dir) / 'datasets' / 'datasets.pkl', 'rb'))
+
+        # Filter datasets based on global step
+        if self.global_steps > 0:
+            # Filter datasets that have step info
+            for dataset_key in ['input', 'output', 'error', 'problem', 'general']:
+                steps_key = f"{dataset_key}_steps"
+                if steps_key in datasets_with_types and dataset_key in datasets_with_types:
+                    # Create lists of entries to keep
+                    filtered_data = []
+                    filtered_steps = []
+
+                    # Only keep entries with steps less than current global_steps
+                    for entry, step in zip(datasets_with_types[dataset_key], datasets_with_types[steps_key]):
+                        if step <= self.global_steps:
+                            filtered_data.append(entry)
+                            filtered_steps.append(step)
+
+                    # Update the datasets
+                    datasets_with_types[dataset_key] = filtered_data
+                    datasets_with_types[steps_key] = filtered_steps
+
+                    # Also filter the step counter dictionaries
+                    counter_key = f"{dataset_key}_steps_counter"
+                    if counter_key in datasets_with_types:
+                        filtered_counter = defaultdict(int)
+                        for step, count in datasets_with_types[counter_key].items():
+                            if step <= self.global_steps:
+                                filtered_counter[step] = count
+                        datasets_with_types[counter_key] = filtered_counter
+
+            PrettyPrinter.status("FILTER", f"Filtered datasets to only include entries with steps <= {self.global_steps}", "info")
+
+        ray.get(self.dataset_manager.full_load_data_with_type_counters.remote(datasets_with_types))
+        PrettyPrinter.status("LOAD", f"Loaded datasets and type counters from {self.config.trainer.default_local_dir}", "success")
+        self.loaded_datasets = True
+
+    def _save_checkpoint(self):
+        super()._save_checkpoint()
+        # save datasets
+        self._save_datasets(Path(self.config.trainer.default_local_dir) / 'datasets')
+        PrettyPrinter.status("SAVE", f"Saved checkpoint to {self.config.trainer.default_local_dir}", "success")
+
+    def _load_checkpoint(self):
+        super()._load_checkpoint()
+        if self.global_steps == 0:
+            PrettyPrinter.section_header(f"Training from scratch")
+        else:
+            PrettyPrinter.section_header(f"Resuming training from checkpoint, step {self.global_steps}")
+
+        # load datasets
+        # first check if all the datasets exist
+        code_dir = Path(self.config.trainer.default_local_dir) / 'code'
+        self._code_dir = code_dir
+        self.loaded_datasets = False
+        if self.config.trainer.resume_mode == 'auto' and os.path.exists(os.path.join(self.config.trainer.default_local_dir, 'datasets', 'datasets.pkl')):
+            self._load_datasets(self.config.trainer.default_local_dir)
+        elif self.config.trainer.resume_mode == 'disable':
+            if code_dir.exists():
+                # delete all files and subdirectories in the code_dir
+                for file in code_dir.glob('**/*'):
+                    if file.is_file():
+                        file.unlink()
+                    elif file.is_dir():
+                        file.rmdir()
+            PrettyPrinter.status("Directory", f"Cleaned existing code directory at {code_dir}", "info")
+        elif not code_dir.exists():
+            code_dir.mkdir(parents=True, exist_ok=True)
+            PrettyPrinter.status("Directory", f"Created new code directory at {code_dir}", "info")
+
+    def scheduler_step(self):
+        if self.config.azr.data_selection_strategy.composite_scheduler.enabled:
+            # Update number of programs - calculate directly based on global steps
+            if self.global_steps >= self.config.azr.data_selection_strategy.composite_scheduler.update_num_programs_start:
+                steps_since_start = self.global_steps - self.config.azr.data_selection_strategy.composite_scheduler.update_num_programs_start
+                num_updates = steps_since_start // self.config.azr.data_selection_strategy.composite_scheduler.update_num_programs_interval
+
+                # Calculate new value directly from initial value + increments
+                initial_max = self.config.azr.data_selection_strategy.max_programs_initial
+                new_max = min(initial_max + num_updates, self.config.azr.data_selection_strategy.composite_scheduler.num_programs_max)
+
+                # Only log if value changed
+                if new_max != self.config.azr.data_selection_strategy.composite_function_n_max:
+                    current_max = self.config.azr.data_selection_strategy.composite_function_n_max
+                    self.config.azr.data_selection_strategy.composite_function_n_max = new_max
+                    PrettyPrinter.status("Scheduler", f"Updated max programs from {current_max} to {new_max}", "info")
+
+            # Update composite probability - calculate directly based on global steps
+            if self.global_steps >= self.config.azr.data_selection_strategy.composite_scheduler.update_probability_start:
+                steps_since_start = self.global_steps - self.config.azr.data_selection_strategy.composite_scheduler.update_probability_start
+                num_updates = steps_since_start // self.config.azr.data_selection_strategy.composite_scheduler.update_probability_interval
+
+                # Calculate new value directly from initial value + increments
+                initial_prob = self.config.azr.data_selection_strategy.composite_chance_initial
+                new_prob = min(initial_prob + (num_updates * self.config.azr.data_selection_strategy.composite_scheduler.update_probability_increment),
+                              self.config.azr.data_selection_strategy.composite_scheduler.update_probability_max)
+
+                # Only log if value changed
+                if new_prob != self.config.azr.data_selection_strategy.composite_chance:
+                    current_prob = self.config.azr.data_selection_strategy.composite_chance
+                    self.config.azr.data_selection_strategy.composite_chance = new_prob
+                    PrettyPrinter.status("Scheduler", f"Updated composite probability from {current_prob:.2f} to {new_prob:.2f}", "info")
+
 
 
 class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
@@ -595,13 +1807,6 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 timeout_length=self.config.azr.execute_max_timeout, 
                 ast_check=self.config.azr.ast_check,
                 max_workers=self.config.azr.get('executor_max_workers', 1)
-            )
-        elif self.config.azr.executor == 'sandboxfusion':
-            self._executor = SandboxfusionExecutor(
-                timeout_length=self.config.azr.execute_max_timeout, 
-                ast_check=self.config.azr.ast_check,
-                max_workers=self.config.azr.get('executor_max_workers', 1),
-                use_china_mirror=self.config.azr.get('use_china_mirror', True)
             )
         else:
             raise ValueError(f'Invalid executor: {self.config.azr.executor}')
@@ -785,6 +1990,9 @@ class CodeIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation='error',
                                          extra_source_key=f"pred_{problem_type}_train")
+        with open('code_pred_train_dataset.txt', 'a') as f:
+            f.write(f"Problem type: {problem_type}, Dataset size: {len(code_pred_train_dataset)}\n")
+            f.write(f"Dataset: {code_pred_train_dataset}\n")
         # use sampler for better ckpt resume
         if self.config.data.shuffle:
             train_dataloader_generator = torch.Generator()

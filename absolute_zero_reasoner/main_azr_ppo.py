@@ -24,8 +24,8 @@ from verl.utils.fs import copy_local_path_from_hdfs
 from verl.utils import hf_tokenizer
 from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
-from absolute_zero_reasoner.trainer.ppo.azr_ray_trainer import CodeIORayPPOTrainer
-from absolute_zero_reasoner.rewards.reward_managers import CodeIORewardManager
+from absolute_zero_reasoner.trainer.ppo.azr_ray_trainer import CodeIORayPPOTrainer, GeneralIORayPPOTrainer
+from absolute_zero_reasoner.rewards.reward_managers import CodeIORewardManager, GeneralIORewardManager, BenchmarkEvaluationRewardManager
 
 
 @hydra.main(config_path='configs', config_name='azr_ppo_trainer', version_base=None)
@@ -64,7 +64,43 @@ def run_ppo(config) -> None:
 
 @ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
 class TaskRunner:
+    
     def run(self, config):
+        # Set up dynamic timestamp and directories before resolving config
+        from datetime import datetime
+        import os
+        
+        # Generate timestamp
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        date_part = datetime.now().strftime("%Y-%m-%d")
+        time_part = datetime.now().strftime("%H-%M-%S")
+        
+        # Set timestamp
+        config.experiment_timestamp = timestamp
+        
+        # Create base experiment directory
+        experiment_base_dir = f"./outputs/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
+        config.experiment_base_dir = experiment_base_dir
+        
+        # Set other directories
+        config.trainer.output_dir = experiment_base_dir
+        config.benchmark_tracking_dir = f"{experiment_base_dir}/benchmark_tracking"
+        config.prompt_optimization_dir = f"{experiment_base_dir}/prompt_optimization"
+        
+        # Set checkpoint directory
+        config.trainer.default_local_dir = f"/data/yidingw/checkpoints/general/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
+        
+        # Set output directories for prompt optimization and benchmark tracking
+        if hasattr(config, 'azr') and hasattr(config.azr, 'prompt_optimization'):
+            config.azr.prompt_optimization.output_dir = config.prompt_optimization_dir
+        if hasattr(config, 'azr') and hasattr(config.azr, 'benchmark_tracking'):
+            config.azr.benchmark_tracking.output_dir = config.benchmark_tracking_dir
+        
+        # Create directories if they don't exist
+        os.makedirs(experiment_base_dir, exist_ok=True)
+        os.makedirs(config.benchmark_tracking_dir, exist_ok=True)
+        os.makedirs(config.prompt_optimization_dir, exist_ok=True)
+        os.makedirs(os.path.dirname(config.trainer.default_local_dir), exist_ok=True)
         pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
         OmegaConf.resolve(config)
 
@@ -81,9 +117,20 @@ class TaskRunner:
         config.azr.data_selection_strategy.data_len = config.data.train_batch_size * config.azr.data_selection_strategy.update_iteration
         pprint(f"auto setting data_len: {config.azr.data_selection_strategy.data_len}")
 
-        config.trainer.default_local_dir = (Path(config.trainer.default_local_dir) / config.data.train_files.split('/')[-1].split('.')[0] / config.actor_rollout_ref.model.path.split('/')[-1] / config.reward_fn.extraction_type).as_posix()
+        # Determine task type for path and assertions
+        task_type = getattr(config.azr, 'task_type', 'code')
+    
+        if task_type == 'general':
+            # For general tasks, use a different path structure
+            config.trainer.default_local_dir = (Path(config.trainer.default_local_dir) / 'general_io' / config.actor_rollout_ref.model.path.split('/')[-1] / config.reward_fn.extraction_type).as_posix()
+            # Set default problem types for general tasks if not specified
+            if not hasattr(config.azr, 'problem_types') or not config.azr.problem_types:
+                config.azr.problem_types = ['general']
+        else:
+            # Original path structure for code tasks
+            config.trainer.default_local_dir = (Path(config.trainer.default_local_dir) / config.data.train_files.split('/')[-1].split('.')[0] / config.actor_rollout_ref.model.path.split('/')[-1] / config.reward_fn.extraction_type).as_posix()
 
-        assert not (not config.azr.reward.generation_reward_config.reject_multiple_functions and config.azr.data_selection_strategy.composite_function_n_min > 0), "If reject_multiple_functions is False, composite_function_n_min must be 0"
+            assert not (not config.azr.reward.generation_reward_config.reject_multiple_functions and config.azr.data_selection_strategy.composite_function_n_min > 0), "If reject_multiple_functions is False, composite_function_n_min must be 0"
 
         # download the checkpoint from hdfs
         local_path = copy_local_path_from_hdfs(config.actor_rollout_ref.model.path)
@@ -168,65 +215,119 @@ class TaskRunner:
         if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
             role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
             mapping[Role.RefPolicy] = global_pool_id
+        
+        if task_type == 'general':
+            # Use GeneralIORewardManager for training
+            reward_fn = GeneralIORewardManager(
+                tokenizer=tokenizer,
+                num_examine=0,
+                split='train',
+                reward_fn_extraction_type=config.reward_fn.extraction_type,
+                splitter=config.reward_fn.splitter,
+                output_path=config.trainer.default_local_dir,
+                generation_reward_config=config.azr.reward.generation_reward_config,
+                eval_reward_config=getattr(config.azr.reward, 'eval_reward_config', {}),
+                model_name=getattr(config.reward_fn, 'llm_model_name', 'meta/llama-3.1-405b-instruct'),
+                max_prompt_length=config.data.max_prompt_length,
+                temperature=getattr(config.reward_fn, 'temperature', 0.7),
+                max_tokens=getattr(config.reward_fn, 'max_tokens', 1000),
+                top_p=getattr(config.reward_fn, 'top_p', 0.95),
+                stream=getattr(config.reward_fn, 'stream', True),
+                boxed_retry=config.reward_fn.boxed_retry,
+                judge_with_actor=config.reward_fn.judge_with_actor,
+                infer_together=config.reward_fn.infer_together,
+                normalize_scores_in_batch=getattr(config.reward_fn, 'normalize_scores_in_batch', False),
+                # judge_with_actor only available for infering question and answer score together
+            )
 
-        reward_fn = CodeIORewardManager(
-            tokenizer=tokenizer,
-            num_examine=0,
-            reward_fn_extraction_type=config.reward_fn.extraction_type,
-            math_metric=config.reward_fn.math_metric,
-            split='train',
-            splitter=config.reward_fn.splitter,
-            output_path=config.trainer.default_local_dir,
-            max_prompt_length=config.data.max_prompt_length,
-            generation_reward_config=config.azr.reward.generation_reward_config,
-            valid_program_filter=config.azr.data_selection_strategy.valid_program_filter,
-            debug=config.trainer.debug,
-            extract_code_block=config.azr.reward.extract_code_block,
-            code_f_reward_type=config.azr.reward.code_f_reward_type,
-            boxed_retry=config.reward_fn.boxed_retry,
-        )
+            # For validation, use BenchmarkEvaluationRewardManager instead
+            val_reward_fn = BenchmarkEvaluationRewardManager(
+                tokenizer=tokenizer,
+                model_name=getattr(config.azr, 'benchmark_eval_model', 'meta/llama-3.1-405b-instruct'),
+                temperature=getattr(config.reward_fn, 'temperature', 0.0),
+                max_tokens=getattr(config.reward_fn, 'max_tokens', 500),
+                top_p=getattr(config.reward_fn, 'top_p', 0.95),
+                stream=getattr(config.reward_fn, 'stream', True),
+                boxed_retry=config.reward_fn.boxed_retry,
+                # maybe judge_with_actor as well?
+            )
+        else:
+            reward_fn = CodeIORewardManager(
+                tokenizer=tokenizer,
+                num_examine=0,
+                reward_fn_extraction_type=config.reward_fn.extraction_type,
+                math_metric=config.reward_fn.math_metric,
+                split='train',
+                splitter=config.reward_fn.splitter,
+                output_path=config.trainer.default_local_dir,
+                max_prompt_length=config.data.max_prompt_length,
+                generation_reward_config=config.azr.reward.generation_reward_config,
+                valid_program_filter=config.azr.data_selection_strategy.valid_program_filter,
+                debug=config.trainer.debug,
+                extract_code_block=config.azr.reward.extract_code_block,
+                code_f_reward_type=config.azr.reward.code_f_reward_type,
+                boxed_retry=config.reward_fn.boxed_retry,
+            )
 
-        # Note that we always use function-based RM for validation
-        val_reward_fn = CodeIORewardManager(
-            tokenizer=tokenizer,
-            num_examine=1,
-            reward_fn_extraction_type=config.reward_fn.extraction_type,
-            math_metric=config.reward_fn.math_metric,
-            split='test',
-            splitter=config.reward_fn.splitter,
-            output_path=config.trainer.default_local_dir,
-            max_prompt_length=config.data.max_prompt_length,
-            generation_reward_config=config.azr.reward.generation_reward_config,
-            valid_program_filter=config.azr.data_selection_strategy.valid_program_filter,
-            debug=config.trainer.debug,
-            extract_code_block=config.azr.reward.extract_code_block,
-            code_f_reward_type=config.azr.reward.code_f_reward_type,
-            boxed_retry=config.reward_fn.boxed_retry,
-        )
+            # Note that we always use function-based RM for validation
+            val_reward_fn = CodeIORewardManager(
+                tokenizer=tokenizer,
+                num_examine=1,
+                reward_fn_extraction_type=config.reward_fn.extraction_type,
+                math_metric=config.reward_fn.math_metric,
+                split='test',
+                splitter=config.reward_fn.splitter,
+                output_path=config.trainer.default_local_dir,
+                max_prompt_length=config.data.max_prompt_length,
+                generation_reward_config=config.azr.reward.generation_reward_config,
+                valid_program_filter=config.azr.data_selection_strategy.valid_program_filter,
+                debug=config.trainer.debug,
+                extract_code_block=config.azr.reward.extract_code_block,
+                code_f_reward_type=config.azr.reward.code_f_reward_type,
+                boxed_retry=config.reward_fn.boxed_retry,
+            )
 
         resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
-
-        wandb_tags = [
-            'codeio', config.azr.pred_data_mix_strategy, 'executor-' + config.azr.executor,
-            config.azr.data_selection_strategy.valid_program_filter, config.azr.gen_data_probabilities_strategy,
-        ]
+        if task_type == 'general':
+            wandb_tags = [
+                'generalio', config.azr.pred_data_mix_strategy,
+                config.azr.data_selection_strategy.get('valid_question_filter', 'all'),
+            ]
+        else:
+            wandb_tags = [
+                'codeio', config.azr.pred_data_mix_strategy, 'executor-' + config.azr.executor,
+                config.azr.data_selection_strategy.valid_program_filter, config.azr.gen_data_probabilities_strategy,
+            ]
         wandb_tags.extend(config.azr.problem_types)
         if config.trainer.wandb_tags is not None:
             config.trainer.wandb_tags = wandb_tags + config.trainer.wandb_tags.split(',')
         else:
             config.trainer.wandb_tags = wandb_tags
-
-        trainer = CodeIORayPPOTrainer(
-            past_epoch_window=config.azr.past_epoch_window,
-            config=config,
-            tokenizer=tokenizer,
-            processor=processor,
-            role_worker_mapping=role_worker_mapping,
-            resource_pool_manager=resource_pool_manager,
-            ray_worker_group_cls=ray_worker_group_cls,
-            reward_fn=reward_fn,
-            val_reward_fn=val_reward_fn,
-        )
+        # Create appropriate trainer based on task type
+        if task_type == 'general':
+            trainer = GeneralIORayPPOTrainer(
+                past_epoch_window=config.azr.past_epoch_window,
+                config=config,
+                tokenizer=tokenizer,
+                role_worker_mapping=role_worker_mapping,
+                resource_pool_manager=resource_pool_manager,
+                ray_worker_group_cls=ray_worker_group_cls,
+                reward_fn=reward_fn,
+                val_reward_fn=None,  # No standard validation for general tasks
+                benchmark_reward_fn=val_reward_fn,  # Use benchmark evaluation instead
+            )
+        else:
+            trainer = CodeIORayPPOTrainer(
+                past_epoch_window=config.azr.past_epoch_window,
+                config=config,
+                tokenizer=tokenizer,
+                processor=processor,
+                role_worker_mapping=role_worker_mapping,
+                resource_pool_manager=resource_pool_manager,
+                ray_worker_group_cls=ray_worker_group_cls,
+                reward_fn=reward_fn,
+                val_reward_fn=val_reward_fn,
+            )
 
         trainer.init_workers()
         trainer.fit()

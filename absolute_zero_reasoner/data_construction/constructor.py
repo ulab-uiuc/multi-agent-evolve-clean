@@ -4,10 +4,263 @@ from numpy import random
 import pandas as pd
 from transformers import AutoTokenizer
 
-from absolute_zero_reasoner.data_construction.prompts import get_code_problem_generator_prompt, get_code_problem_predictor_prompt
+from absolute_zero_reasoner.data_construction.prompts import get_code_problem_generator_prompt, get_code_problem_predictor_prompt, get_general_generator_prompt,get_general_generation_with_reference_prompt, get_general_predictor_prompt, get_general_judger_prompt
 from absolute_zero_reasoner.data_construction.process_data import boxed_instruction, instruction_following
 from absolute_zero_reasoner.utils.code_utils.parsers import replace_main_function_name
 
+def extract_question(text: str) -> str:
+    """
+    Extract the question part from the text.
+    Assumes the question is enclosed in <question> tags.
+    """
+    start = text.find('<question>') + len('<question>')
+    end = text.find('</question>', start)
+    return text[start:end].strip() if start != -1 and end != -1 else text.strip()
+
+import numpy as np
+import pandas as pd
+
+def get_gen_general_io_data(
+    io_data: List[Dict],
+    target_data_len: int,
+    content_max_length: int,
+    io_n: int,
+    output_path: str,
+    split: str,
+    tokenizer,  # 不强依赖类型声明，避免导入问题
+    weights: List[float] = None,
+    include_references: bool = True,
+    prompt_manager = None,  # Add prompt manager parameter
+):
+    return_io_data = []
+    
+    # Use dynamic prompt if prompt_manager is available
+    if prompt_manager:
+        instruction_template = prompt_manager.get_proposer_instruction()
+        print(f"[DEBUG] get_gen_general_io_data: Using dynamic proposer instruction")
+    else:
+        instruction_template = '{}'
+        print(f"[DEBUG] get_gen_general_io_data: Using default instruction template")
+
+    # 兜底：空数据直接写空表并返回
+    if not io_data:
+        pd.DataFrame(return_io_data).to_parquet(output_path)
+        return
+
+    # 概率分布
+    if weights is None:
+        probabilities = np.full(len(io_data), 1.0 / len(io_data))
+    else:
+        w = np.asarray(weights, dtype=float)
+        s = w.sum()
+        if s <= 0 or len(w) != len(io_data) or not np.isfinite(s):
+            probabilities = np.full(len(io_data), 1.0 / len(io_data))
+        else:
+            probabilities = w / s
+
+    idx = 0
+    max_attempts = max(5 * target_data_len, 100)  # 防止无限循环
+    attempts = 0
+
+    while len(return_io_data) < target_data_len and attempts < max_attempts:
+        attempts += 1
+
+        if not include_references:
+            chosen_references = []
+        else:
+            k = min(io_n, len(io_data))
+            # 用 numpy 的 choice，并转成 Python list
+            chosen_indices = np.random.choice(len(io_data), size=k, replace=False, p=probabilities)
+            chosen_references = [io_data[i] for i in chosen_indices]
+        if not chosen_references:
+            if prompt_manager:
+                # Use the enhanced proposer instruction directly from prompt_manager
+                io_prompt = instruction_template
+            else:
+                io_prompt = instruction_template.format(
+                    get_general_generator_prompt(reference_questions=chosen_references)
+                )
+        else:
+            if prompt_manager:
+                # Use the enhanced proposer instruction directly from prompt_manager
+                # But we need to add reference questions to it
+                base_instruction = instruction_template
+                reference_section = get_general_generation_with_reference_prompt(reference_questions=chosen_references)
+                # Extract the reference questions part from the reference_section
+                if "### Reference Questions:" in reference_section:
+                    ref_part = reference_section.split("### Reference Questions:")[1]
+                    io_prompt = base_instruction + "\n### Reference Questions:" + ref_part
+                else:
+                    io_prompt = base_instruction
+            else:
+                io_prompt = instruction_template.format(
+                    get_general_generation_with_reference_prompt(reference_questions=chosen_references)
+                )
+        # 提取 question
+        # question = extract_question(io_prompt.split('### Your Task:')[1].strip())
+        question = io_prompt
+        # if not question:
+        #     # print("No question found in the generated prompt, skipping this item.")
+        #     continue
+
+        # 显示给actor的prompt日志
+        from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
+        PrettyPrinter.section_header(f"🤖 Gen_General Proposer Prompt for Actor (Item {idx+1})")
+        PrettyPrinter.code_block(f"Prompt Content:\n{io_prompt}")
+        print(f"[GEN_GENERAL_LOG] Prompt length: {len(tokenizer(io_prompt)['input_ids'])} tokens")
+        print(f"[GEN_GENERAL_LOG] Using prompt_manager: {prompt_manager is not None}")
+        if prompt_manager:
+            print(f"[GEN_GENERAL_LOG] Enhanced proposer instruction with question-answer verification enabled")
+        
+        # 过滤过长样本
+        if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
+            io_item = {
+                "data_source": 'gen_general',
+                "prompt": [{"role": "user", "content": io_prompt}],
+                "question": question,
+                "answer": "",
+                "ability": "general",
+                "reward_model": {"style": "rule", "ground_truth": ''},
+                "extra_info": {
+                    'split': split,
+                    'index': idx,
+                    'metric': 'gen_general',
+                    # 确保可序列化
+                    'chosen_references': chosen_references,
+                }
+            }
+            return_io_data.append(io_item)
+            idx += 1
+
+    # 不足就上采样补齐（前提：io_data 非空）
+    while len(return_io_data) < target_data_len:
+        j = np.random.randint(0, len(io_data))  # 上界开区间，不会越界
+        return_io_data.append(io_data[j])
+
+    # 输出到 parquet
+    pd.DataFrame(return_io_data).to_parquet(output_path)
+
+def get_pred_general_io_data(
+    io_data: List[Dict],
+    target_data_len: int,
+    content_max_length: int,
+    output_path: str,
+    split: str,
+    tokenizer: AutoTokenizer,
+    prompt_manager = None,  # Add prompt manager parameter
+):
+    return_io_data = []
+    
+    # Use dynamic prompt if prompt_manager is available
+    if prompt_manager:
+        instruction_template = prompt_manager.get_solver_instruction("{}")
+        print(f"[DEBUG] get_pred_general_io_data: Using dynamic solver instruction")
+    else:
+        instruction_template = '{}'
+        print(f"[DEBUG] get_pred_general_io_data: Using default instruction template")
+
+    for idx, io_item in enumerate(io_data):
+        if prompt_manager:
+            # Use prompt manager to get enhanced solver instruction
+            io_prompt = prompt_manager.get_solver_instruction(io_item['question'])
+        else:
+            # Use traditional template approach
+            io_prompt = instruction_template.format(
+                get_general_predictor_prompt(
+                    question=io_item['question'],
+                )
+            )
+        print(f"Generated prompt: {io_prompt}")
+        # since we have abundant judge data, we can afford to filter out some data
+        if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
+            output_io_item = {
+                "data_source": 'pred_general',
+                "prompt": [{
+                    "role": "user",
+                    "content": io_prompt,
+                }],
+                "question": io_item['question'],
+                "answer": "",
+                "ability": "general",
+                "reward_model": {
+                    "style": "rule",
+                    "ground_truth": io_item.get('answer',''),
+                },
+                "extra_info": {
+                    'split': split,
+                    'index': idx,
+                    'metric': 'pred_general',
+                }
+            }
+            return_io_data.append(output_io_item)
+
+        if len(return_io_data) >= target_data_len:
+            break
+
+    # if io_data is not full, we sample upsample random data
+    while len(return_io_data) < target_data_len:
+        io_item = return_io_data[random.randint(0, len(return_io_data))]
+        return_io_data.append(io_item)
+
+    # output to parquet
+    df = pd.DataFrame(return_io_data)
+    df.to_parquet(output_path)
+
+def get_judge_general_io_data(
+    io_data: List[Dict],
+    target_data_len: int,
+    content_max_length: int,
+    output_path: str,
+    split: str,
+    tokenizer: AutoTokenizer,
+    prompt_manager=None,
+):
+    return_io_data = []
+    instruction_template = '{}'
+
+    for idx, io_item in enumerate(io_data):
+        io_prompt = instruction_template.format(
+            get_general_judger_prompt(
+                question=io_item['question'],
+                answer=io_item['answer'],
+                prompt_manager=prompt_manager,
+            )
+        )
+        print(f"Generated prompt: {io_prompt}")
+        # since we have abundant judge data, we can afford to filter out some data
+        if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
+            output_io_item = {
+                "data_source": 'judge_general',
+                "prompt": [{
+                    "role": "user",
+                    "content": io_prompt,
+                }],
+                "question": io_item['question'],
+                "answer": io_item['answer'],
+                "ability": "general",
+                "reward_model": {
+                    "style": "rule",
+                    "ground_truth": io_item['reward_model']['ground_truth'],
+                },
+                "extra_info": {
+                    'split': split,
+                    'index': idx,
+                    'metric': 'judge_general',
+                }
+            }
+            return_io_data.append(output_io_item)
+
+        if len(return_io_data) >= target_data_len:
+            break
+
+    # if io_data is not full, we sample upsample random data
+    while len(return_io_data) < target_data_len:
+        io_item = return_io_data[random.randint(0, len(return_io_data))]
+        return_io_data.append(io_item)
+
+    # output to parquet
+    df = pd.DataFrame(return_io_data)
+    df.to_parquet(output_path)
 
 def get_gen_code_io_data(
     io_data: List[Dict],
@@ -87,6 +340,7 @@ def get_gen_code_io_data(
                 remove_input_from_snippet=remove_input_from_snippet,
             )
         )
+        # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             io_item = {
                 "data_source": 'gen_' + problem_type,
@@ -180,6 +434,7 @@ def get_pred_code_io_data(
                     output=io_item['output'],
                 )
             )
+        # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             output_io_item = {
                 "data_source": 'pred_' + problem_type,

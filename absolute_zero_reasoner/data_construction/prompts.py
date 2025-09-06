@@ -1,5 +1,163 @@
 from typing import List, Dict, Tuple
 
+general_generation_based_on_reference_prompt = """
+## Task: Create a Challenging and Modified Version of a Reference Task
+
+Given one or more **reference tasks** along with their **ground truth answers**, your goal is to design a **new, more challenging task** by making **controlled perturbations** to the original. The modifications should **increase reasoning depth, introduce extra constraints, or add multi-step dependencies** while keeping the problem **self-contained and solvable**.
+
+You must preserve the **core domain or reasoning type** of the reference (e.g., if it’s a logic puzzle, keep it a logic puzzle) but ensure the **surface content and structure are new**. You may:
+- Add additional constraints or intermediate steps
+- Replace elements with analogous but more complex structures
+- Introduce distractors or traps that require careful reasoning
+- Change numerical values, symbolic rules, or conditions to increase difficulty
+- Combine multiple references into one composite, coherent challenge
+
+---
+
+### Task Requirements:
+
+- The modified task must be:
+  * **Self-contained** and clearly described
+  * **Significantly different in surface form** from the reference, but same reasoning type
+  * **More challenging** — requiring additional steps or deeper analysis than the reference
+  * **Deterministic** or tightly constrained
+  * **Free from cultural bias, real-time info, or factual recall**
+
+- Accepted Domains:
+  * Logic puzzles, paradoxes, analogical reasoning
+  * Pattern-based math or symbolic challenges
+  * Spatial or constraint-based planning
+  * Structured or constrained writing
+  * Multi-agent or multi-state reasoning
+  * Instruction-following with hidden traps
+
+- Avoid:
+  * Pure trivia or subjective writing
+  * Ambiguity or taste-based prompts
+  * Dependency on web or recent events
+  * Unsuitable open-endedness
+
+---
+
+### Output Format:
+
+- `<think>`: Describe your reasoning for how you modified the reference, what reasoning it tests, and why it’s harder.
+- `<question>`: The final new task to present to the test subject.
+
+### Output Template:
+
+```<think>
+[Explain modifications from the reference and why they increase difficulty — e.g., added constraints, distractors, multi-step dependencies.]
+</think>
+
+<question>
+[Write the modified, more challenging task in full, ready to present. Ensure it is solvable without external info.]
+</question>
+
+### Reference Questions:
+"""
+
+general_generation_prompt = """
+## Task: Create a Challenging and Original Task
+
+Design a new and intellectually demanding task that tests **complex reasoning, creative thinking, structured planning, or deep understanding**. The task should be suitable for evaluation in general intelligence, reasoning benchmarks, instruction following, or alignment assessments.
+
+You may design a task that resembles a quiz, puzzle, constrained writing, or symbolic reasoning prompt. Focus on structure, challenge, and clarity — not trivia or stylistic flair.
+
+This prompt is intended to help construct the **task itself**, not example answers or input/output.
+
+---
+
+### Task Requirements:
+
+- The task must be:
+  * **Self-contained** and clearly described
+  * **Non-trivial**, requiring multiple reasoning steps, constraints, or synthesis
+  * **Deterministic** or tightly constrained (even if open-ended in form)
+  * **Free from cultural bias, real-time information, or factual recall**
+
+- Accepted Domains include:
+  * Logic puzzles, paradoxes, analogical reasoning
+  * Pattern-based math or symbolic challenges
+  * Spatial planning or constraint problems
+  * Structured or constrained writing
+  * Agent-based planning, recursive state modeling
+  * Instruction following with internal traps
+
+- Avoid:
+  * Trivia questions or subjective writing
+  * Ambiguous or taste-based open-ended prompts
+  * Any dependency on web access or recent knowledge
+  * Tasks with no clear solvability path
+
+---
+
+### Output Format:
+
+You must structure your response in two blocks using the tags below:
+
+- The `<think>` section should contain your rationale or cognitive goal for the task. (Optional)
+- The `<question>` section should contain the full task shown to the test subject.
+
+### Output Template:
+
+```<think>
+[Why is this task interesting? What reasoning type does it test — deduction, simulation, abstraction, generation, contradiction detection, etc.?]
+</think>
+
+<question>
+[Write the task as it would be presented. Use clear formatting. This should be solvable without needing input/output examples.]
+</question>
+
+### Reference Questions:
+"""
+
+general_prediction_prompt = """
+## Task: Generate a High-Quality Response to a Given Task
+
+You will be given a cognitive, creative, logical、mathematical、or planning-related task. Your job is to generate a complete, high-quality response that satisfies the task’s constraints and demonstrates clear, structured reasoning or creativity.
+
+### Instructions:
+- Carefully read and understand the task.
+- Think step by step — break down the task, simulate it mentally if needed, and reason through constraints.
+- Then directly write your final response (no need to restate or reformat the task).
+- Do **not** separate your answer into sections like "task", "think", or "response". Just give your best final answer with your reasoning embedded naturally or implied by structure.
+- Your output should:
+  * Be **correct** or **plausibly optimal**, given the task
+  * **Fulfill all constraints** in the task
+  * Be **clear, structured**, and **non-trivial**
+  * Avoid fluff, vagueness, or randomness
+
+### Good Response Traits:
+- For reasoning tasks: shows logical progression or result
+- For generation tasks: respects the given constraints (style, length, content)
+- For math/logic/planning: includes a final answer that could be evaluated
+- For creative tasks: coherent, original, and well-scaffolded
+
+"""
+
+general_judge_question_answer_prompt = """
+
+"""
+
+general_judge_answer_prompt = """
+## Task: Provide a High-Quality Score for a given answer to a question
+
+You will be given a question and an answer. Your job is to evaluate the quality of the answer based on its correctness, clarity, and relevance to the question.
+
+### Instructions:
+Consider the following criteria when evaluating:
+- Is the solution correct and accurate?
+- Is it complete and comprehensive?
+- Does it properly address the question?
+- Is the reasoning clear and logical?
+- Determine what score is most appropriate
+
+"""
+
+# [TODO] above prompts may need to be modified in the future
+# maybe <think></think> tags for all prompts?
+
 code_input_prompt = """
 ## Task: Create a Python Code Snippet (where custom classes are allowed, which should be defined at the top of the code snippet) with one Matching Input
 
@@ -331,6 +489,55 @@ composite_requirements_prompt = "\n[IMPORTANT CRITERIA!!!] The main function `f`
 remove_input_from_snippet_prompt = "- Do not have the test input anywhere in the code snippet, provide it in the input section."
 
 remove_singleton_variables_prompt = "- All variable declarations must be inside the main function `f` or within functions `f` make calls to. Any variables declared outside of functions will be removed.\n"
+
+def get_general_generation_with_reference_prompt(
+        reference_questions: List[Dict[str, str]],
+) -> str:
+    # Generate a general prompt for the generator based on reference questions
+    reference_questions_string = ""
+    for i, question in enumerate(reference_questions):
+        reward_model = question.get('reward_model', {})
+        if reward_model.get('ground_truth') is not None:
+            ground_truth = reward_model['ground_truth']
+        else:
+            ground_truth = "N/A"
+        reference_questions_string += f"<question>\n{question['question']}\n</question>\n\n Ground Truth Answer: {ground_truth}\n\n"
+
+    return general_generation_based_on_reference_prompt + reference_questions_string + "\n### Your Task:\nCreate a Challenging and Modified Version of the Reference Task. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your modified task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
+def get_general_generator_prompt(
+        reference_questions: List[Dict[str, str]],
+) -> str:
+    # Generate a general prompt for the generator
+    reference_questions_string = ""
+    for i, question in enumerate(reference_questions):
+        reference_questions_string += f"<question>\n{question['question']}\n</question>\n"
+
+    return general_generation_prompt + reference_questions_string + "\n### Your Task:\nDesign a new and unique task that meets the requirements outlined above. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your designed task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
+
+def get_general_predictor_prompt(
+        question: str,
+) -> str:
+    # Generate a general prompt for the predictor
+    return general_prediction_prompt + f"\n\n### Question:\n{question}\n\n---\n\n### Output Template:\n[Your final answer to the question, structured and clear, without restating the question]"
+
+def get_general_judger_prompt(
+        question: str,
+        answer: str,
+        prompt_manager=None,
+) -> str:
+    # Use prompt manager if available, otherwise fall back to static prompt
+    if prompt_manager:
+        # Get the appropriate judge template based on infer_together setting
+        judge_template = prompt_manager.get_judge_instruction(prompt_type="answer")
+        # Format with question and answer
+        try:
+            return judge_template.format(question=question, answer=answer)
+        except (KeyError, ValueError):
+            # If template formatting fails, fall back to appending
+            return f"{judge_template}\n\n### Question:\n{question}\n\n### Answer:\n{answer}"
+    else:
+        # Fallback to original static prompt
+        return general_judge_answer_prompt + f"\n\n### Question:\n{question}\n\n---\n\n### Answer:\n{answer}\n\n---\n\n### Output Template:\n[Your score for the answer to the question, without restating the question or the answer. Use an integer scale from 1 to 10, where 1 is the lowest quality and 10 is the highest quality]"
 
 def get_code_problem_generator_prompt(
     problem_type: str,

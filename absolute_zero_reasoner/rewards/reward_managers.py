@@ -10,6 +10,9 @@ import numpy as np
 import pandas as pd
 import torch
 from transformers import AutoTokenizer
+from openai import OpenAI
+import multiprocessing as mp
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from verl import DataProto
 from verl.protocol import DataProtoItem
 from verl.utils.dataset.rl_dataset import collate_fn
@@ -875,3 +878,1546 @@ class CodeIORewardManager():
         # turn into normal dict
         rewards = dict(rewards)
         return rewards, valid_programs
+
+from functools import partial
+from typing import Dict, Any, List, Tuple
+import torch
+from transformers import AutoTokenizer
+from openai import OpenAI
+import json
+import numpy as np
+import random
+
+class GeneralIORewardManager:
+    """The reward manager for GeneralIO tasks."""
+    def __init__(
+        self,
+        tokenizer: AutoTokenizer,
+        num_examine: int,
+        split: str,
+        reward_fn_extraction_type: str,
+        splitter: str,
+        output_path: str,
+        generation_reward_config: Dict[str, Any],
+        eval_reward_config: Dict[str, Any],
+        model_name: str,
+        max_prompt_length: int = 8192,
+        temperature: float = 0.7,
+        max_tokens: int = 1000,
+        top_p: float = 0.95,
+        stream: bool = True,
+        boxed_retry: bool = False,
+        judge_with_actor: bool = False,
+        train_judge: bool = False,
+        infer_together: bool = False,
+        normalize_scores_in_batch: bool = False,
+        prompt_manager=None,
+        **kwargs
+    ):
+        self.tokenizer = tokenizer
+        self.num_examine = num_examine
+        self.split = split
+        self.reward_fn_extraction_type = reward_fn_extraction_type
+        self.splitter = splitter
+        self.output_path = output_path
+        self.generation_reward_config = generation_reward_config
+        self.eval_reward_config = eval_reward_config
+        self.model_name = model_name
+        self.max_prompt_length = max_prompt_length
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.top_p = top_p
+        self.stream = stream
+        self.boxed_retry = boxed_retry
+        self.judge_with_actor = judge_with_actor
+        self.train_judge = train_judge
+        self.infer_together = infer_together
+        self.prompt_manager = prompt_manager
+        self.normalize_batch_scores = normalize_scores_in_batch
+
+        assert not self.train_judge or self.judge_with_actor, "judge_with_actor must be activated if train_judge is True"
+
+    def set_prompt_manager(self, prompt_manager):
+        """Set or update the prompt_manager for this reward manager."""
+        self.prompt_manager = prompt_manager
+        
+        # Initialize the external LLM client
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="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"
+        )
+
+    def extract_score_from_tags(self, text: str) -> List[float]:
+        """
+        Extract numerical scores from <score></score> tags with priority:
+        1. Integer numbers
+        2. Floating point numbers  
+        3. Fractions (e.g., 3/5, 7/10)
+        
+        Args:
+            text (str): The input text containing <score></score> tags
+            
+        Returns:
+            List[float]: List of extracted numerical values as floats
+        """
+        import re
+        from fractions import Fraction
+        
+        # Find all content within <score></score> tags (case insensitive)
+        score_tags = re.findall(r'<score>(.*?)</score>', text, re.IGNORECASE | re.DOTALL)
+        
+        extracted_scores = []
+        
+        for tag_content in score_tags:
+            tag_content = tag_content.strip()
+            score_value = None
+            
+            # Priority 1: Try to extract fraction first (most specific)
+            fraction_match = re.search(r'\b(\d+)/(\d+)\b', tag_content)
+            if fraction_match:
+                numerator = int(fraction_match.group(1))
+                denominator = int(fraction_match.group(2))
+                if denominator != 0:
+                    score_value = float(Fraction(numerator, denominator))
+            else:
+                # Priority 2: Try to extract floating point number
+                float_match = re.search(r'\b(\d+\.\d+)\b', tag_content)
+                if float_match:
+                    score_value = float(float_match.group(1))
+                else:
+                    # Priority 3: Try to extract integer
+                    integer_match = re.search(r'\b(\d+)\b', tag_content)
+                    if integer_match:
+                        score_value = float(integer_match.group(1))
+            
+            if score_value is not None:
+                extracted_scores.append(score_value)
+        
+        return extracted_scores
+
+    def _generate_prompt_for_judge(self, question: str = None, answer: str = None, prompt_type: str = "answer") -> str:
+        """Generate a prompt for the LLM to judge the quality of a question and response."""
+        assert prompt_type in ["answer", "question", "together"], f"Invalid prompt type: {prompt_type}"
+        
+        # Use prompt_manager if available, otherwise fall back to hardcoded prompts
+        if hasattr(self, 'prompt_manager') and self.prompt_manager is not None:
+            # Determine the correct judge type based on prompt_type
+            if prompt_type == "answer":
+                judge_type = "judge_answer"
+            elif prompt_type == "question":
+                judge_type = "judge_question"  
+            elif prompt_type == "together":
+                judge_type = "judge_together"
+            else:
+                raise ValueError(f"Invalid prompt type: {prompt_type}")
+            
+            # Get optimized prompt from prompt_manager
+            judge_prompt_template = self.prompt_manager.get_template(judge_type)
+            
+            # Fill in the template variables
+            if prompt_type == "answer":
+                prompt = judge_prompt_template.format(question=question, answer=answer)
+            elif prompt_type == "question":
+                prompt = judge_prompt_template.format(question=question)
+            elif prompt_type == "together":
+                prompt = judge_prompt_template.format(question=question, answer=answer)
+                
+            return prompt
+        
+        # Fallback to hardcoded prompts if prompt_manager is not available
+        prompt = ""
+        if prompt_type == "answer":
+            prompt = f"""Please evaluate the following solution to a question/problem.
+
+Question/Problem: {question}
+
+Generated Solution: {answer}
+
+First, analyze the solution in the <think> and </think> tags below:
+
+<think>
+Consider the following criteria when evaluating:
+- Is the solution correct and accurate?
+- Is it complete and comprehensive?
+- Does it properly address the question?
+- Is the reasoning clear and logical?
+- Analyze any strengths and weaknesses
+- Determine what score is most appropriate
+
+[Write your detailed analysis here]
+</think>
+
+Then provide a score from 1 to 10 between <score> and </score> where:
+- 10 means the solution is perfect, complete, and correct
+- 8-9 means the solution is mostly correct but may have minor issues  
+- 5-7 means the solution is partially correct but has significant issues
+- 2-4 means the solution has some merit but is largely incorrect
+- 1 means the solution is completely wrong or irrelevant
+
+<score>X</score> (where X is an integer from 1 to 10)
+"""
+        elif prompt_type == "question":
+            prompt = f"""Please evaluate the quality of the following question generation.
+Question: {question}
+
+First, analyze the question in the <think> tags below:
+
+<think>
+Consider the following criteria when evaluating:
+- Is the question clear and well-formed?
+- Is it complete and understandable?
+- Does it make logical sense?
+- Is it relevant and appropriate?
+- Analyze any strengths and weaknesses
+- Determine what score is most appropriate
+
+[Write your detailed analysis here]
+</think>
+
+Then provide a score from 1 to 10 between <score> and </score> where:
+- 10 means the question is perfect, complete, and clear
+- 8-9 means the question is mostly clear but may have minor issues
+- 5-7 means the question is partially clear but has significant issues
+- 2-4 means the question has some merit but is largely unclear or irrelevant
+- 1 means the question is completely wrong or irrelevant (Also rate as 1 if the question is not a valid question)
+
+<score>X</score> (where X is an integer from 1 to 10)
+"""
+
+        elif prompt_type == "together":
+            prompt = f"""Please evaluate the quality of the following question and answer pair.
+Question: {question}
+
+Provided Answer: {answer}
+
+First, analyze the question in the <think> tags below:
+
+<think>
+Consider the following criteria when evaluating:
+- Is the question clear and well-formed?
+- Is it complete and understandable?
+- Does it make logical sense?
+- Is it relevant and appropriate?
+- Analyze any strengths and weaknesses
+- Determine what score is most appropriate
+
+[Write your detailed analysis here]
+</think>
+
+Then provide a score from 1 to 10 between <score> and </score> for the question where:
+- 10 means the question is perfect, complete, and clear
+- 8-9 means the question is mostly clear but may have minor issues
+- 5-7 means the question is partially clear but has significant issues
+- 2-4 means the question has some merit but is largely unclear or irrelevant
+- 1 means the question is completely wrong or irrelevant (Also rate as 1 if the question is not a valid question)
+
+<score>X</score> (where X is an integer from 1 to 10)
+
+Then analyze the answer in the <think> and </think> tags below:
+
+<think>
+Consider the following criteria when evaluating:
+- Is the answer correct and accurate?
+- Is it complete and comprehensive?
+- Does it properly address the question?
+- Is it well-structured and clear?
+- Analyze any strengths and weaknesses
+- Determine what score is most appropriate
+
+[Write your detailed analysis here]
+</think>
+
+Finally provide a score from 1 to 10 between <score> and </score> for the answerwhere:
+- 10 means the answer is perfect, complete, and correct
+- 8-9 means the answer is mostly correct but may have minor issues
+- 5-7 means the answer is partially correct but has significant issues
+- 2-4 means the answer has some merit but is largely incorrect
+- 1 means the answer is completely wrong or irrelevant
+
+<score>X</score> (where X is an integer from 1 to 10)
+
+Please make sure that your response contains only two pairs of <score> and </score> tags, one for the question and one for the answer. The question score always comes first, followed by the answer score.
+
+When you reference your own scores, you do not use the <score> and </score> tags. You only use these tags to provide the final scores for the question and answer.
+"""
+        return prompt
+    
+    def rollout_with_actors(self, dataset_file: str, rollout_actor_wg) -> DataProto:
+        dataset = RLHFDataset(
+            parquet_files=dataset_file,
+            tokenizer=self.tokenizer,
+            prompt_key='prompt',
+            max_prompt_length=self.max_prompt_length,
+            filter_prompts=True,
+            return_raw_chat=False,
+            truncation='error'
+        )
+        if os.path.exists(dataset_file):
+            os.remove(dataset_file)
+
+        sampler = torch.utils.data.SequentialSampler(data_source=dataset)
+        dataloader = torch.utils.data.DataLoader(
+            dataset=dataset,
+            batch_size=len(dataset),
+            drop_last=False,
+            shuffle=False,
+            collate_fn=collate_fn,
+            sampler=sampler,
+        )
+
+        data = next(iter(dataloader))
+        batch = DataProto.from_single_dict(data)
+        gen_batch = batch.pop(['input_ids', 'attention_mask', 'position_ids'])
+        gen_batch.meta_info = {
+            'eos_token_id': self.tokenizer.eos_token_id,
+            'pad_token_id': self.tokenizer.pad_token_id,
+            'recompute_log_prob': False,
+            'do_sample': True,
+            'validate': True,
+        }
+
+        gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, rollout_actor_wg.world_size)
+        out_gen_batch_padded = rollout_actor_wg.generate_sequences(gen_batch_padded)
+        out_gen_batch = unpad_dataproto(out_gen_batch_padded, pad_size=pad_size)
+        batch = batch.union(out_gen_batch)
+
+        return batch
+    
+    def normalize_scores_in_batch(self, scores):
+        """Normalize scores in a batch so that they fall into a normal distribution"""
+        scores = np.array(scores)
+        if np.std(scores) < 1e-5:
+            return [0.5] * len(scores)
+        normalized_scores = (scores - np.mean(scores)) / (np.std(scores) + 1e-5)
+        normalized_scores = 0.5 + 0.1 * normalized_scores  # Scale to have mean 0.5 and std 0.1
+        normalized_scores = np.clip(normalized_scores, 0.0, 1.0)  # Ensure scores are within [0, 1]
+        normalized_scores = np.round(normalized_scores)  # Ensure scores are integers
+        return normalized_scores.tolist()
+
+    def _get_all_scores(self, data_dicts: List[Dict], rollout_actor_wg, n_samples: int, problem_type: str) -> List[float]:
+        """
+        Get all scores for both gen and pred.
+        """
+        
+        avg_gen_scores = []
+        avg_pred_scores = []
+        
+        if problem_type.startswith("pred"):
+            try:
+                if not self.judge_with_actor:
+                    for data_dict in data_dicts:
+                        avg_pred_scores.append(self._generate_llm_response(self._generate_prompt_for_pred(data_dict, self.infer_together))[0])
+                    if self.normalize_batch_scores:
+                        avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
+                    return avg_gen_scores, avg_pred_scores
+
+                if rollout_actor_wg is None:
+                    return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+                
+                # Build evaluation prompts (one per answer)
+                eval_prompts = []
+                for data_dict in data_dicts:
+                    eval_text = self._generate_prompt_for_pred(data_dict, self.infer_together)
+                    eval_prompts.append({
+                        'prompt': [{'role': 'user', 'content': eval_text}],
+                        'uid': data_dict['uid'],
+                    })
+
+                # Optionally repeat judgments (n_samples) if desired
+                eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
+                # [TODO] Add n_samples here maybe
+
+                temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
+                pd.DataFrame(eval_prompts).to_parquet(temp_judge_file)
+
+                judge_batch = self.rollout_with_actors(
+                    dataset_file=temp_judge_file,
+                    rollout_actor_wg=rollout_actor_wg
+                )
+
+                # Collect raw judge outputs
+                uid2_a_scores = defaultdict(list)
+
+                for jb in judge_batch:
+                    uid = jb.non_tensor_batch['uid']
+                    text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
+                    scores = self.extract_score_from_tags(text)
+                    print("Actor evaluation response:", text)
+                    try:
+                        # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
+                        if self.infer_together:
+                            # assert len(scores) == 2, f"Expected two scores in the response for together, got: {text}"
+                            a = (scores[1] - 1) / 9.0
+                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                            continue
+                        else:
+                            a = (scores[0] - 1) / 9.0
+                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                    except:
+                        print("Falling back to neutral scores.")
+                        pass
+
+                # Aggregate per original data_dict
+                for data_dict in data_dicts:
+                    uid = data_dict['uid']
+                    if uid2_a_scores.get(uid):
+                        avg_pred_scores.append(float(np.mean(uid2_a_scores[uid])))
+                    else:
+                        avg_pred_scores.append(0.5)
+
+            except Exception as e:
+                print(f"Error in pred score computation: {e}")
+                avg_pred_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
+
+            if self.normalize_batch_scores:
+                avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
+            return avg_gen_scores, avg_pred_scores
+        
+        if problem_type.startswith("gen") and not self.infer_together:
+            try:
+                if not self.judge_with_actor:
+                    for data_dict in data_dicts:
+                        avg_gen_scores.append(self._generate_llm_response(self._generate_prompt_for_gen(data_dict))[0])
+                else:
+
+                    if rollout_actor_wg is None:
+                        return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+
+                    # Build evaluation prompts (one per answer)
+                    eval_prompts = []
+                    for data_dict in data_dicts:
+                        eval_text = self._generate_prompt_for_gen(data_dict)
+                        eval_prompts.append({
+                            'prompt': [{'role': 'user', 'content': eval_text}],
+                            'uid': data_dict['uid'],
+                        })
+
+                    # Optionally repeat judgments (n_samples) if desired
+                    eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
+
+                    temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
+                    pd.DataFrame(eval_prompts).to_parquet(temp_judge_file)
+
+                    judge_batch = self.rollout_with_actors(
+                        dataset_file=temp_judge_file,
+                        rollout_actor_wg=rollout_actor_wg
+                    )
+
+                    # Collect raw judge outputs
+                    uid2_q_scores = defaultdict(list)
+
+                    for jb in judge_batch:
+                        uid = jb.non_tensor_batch['uid']
+                        text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
+                        scores = self.extract_score_from_tags(text)
+                        print("Actor evaluation response:", text)
+                        try:
+                            # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
+                            q = (scores[0] - 1) / 9.0
+                            uid2_q_scores[uid].append(min(1.0, max(0.0, q)))
+                        except:
+                            print("Falling back to neutral scores.")
+                            pass
+
+                    # Aggregate per original data_dict
+                    for data_dict in data_dicts:
+                        uid = data_dict['uid']
+                        if uid2_q_scores.get(uid):
+                            avg_gen_scores.append(float(np.mean(uid2_q_scores[uid])))
+                        else:
+                            avg_gen_scores.append(0.5)
+            except Exception as e:
+                print(f"Error in gen score computation: {e}")
+                avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
+
+        # check rollout actor for gen and together problems
+        if rollout_actor_wg is None:
+            print(f"[DEBUG] rollout_actor_wg is None, returning default scores for problem_type: {problem_type}")
+            return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+
+        print(f"[DEBUG] rollout_actor_wg is not None, proceeding with actual scoring for problem_type: {problem_type}")
+
+        try:
+            # Define helper function for extracting questions
+            import re
+            def extract_question(text):
+                pattern = r'<question>(.*?)</question>'
+                matches = re.findall(pattern, text, re.DOTALL)
+                return matches
+            
+            # Create prompts for sampling
+            prompts = []
+            for data_dict in data_dicts:
+                question = extract_question(data_dict.get('generation', '<question></question>').split("[Your designed task]")[-1])
+                if question != []:
+                    question = question[-1]
+                else:
+                    question = "The question is a invalid question"
+
+                #question = data_dict.get('question', '')
+                prompt_text = f"Please solve the following question/problem:\n\n{question}"
+                prompts_dict = {
+                    'prompt': [{'role': 'user', 'content': prompt_text}],
+                    'uid': data_dict['uid'],
+                    'question': question,
+                }
+                PrettyPrinter.section_header(f"Creating prompt for question: {question}")
+                prompts.append(prompts_dict)
+
+            # Repeat prompts n_samples times for sampling
+            repeated_prompts = prompts * n_samples
+            
+            # Create temporary parquet file for sampling
+            temp_file = f'{self.output_path}/temp_generalio_sampling.parquet'
+            pd.DataFrame(repeated_prompts).to_parquet(temp_file)
+            
+            batch = self.rollout_with_actors(
+                dataset_file=temp_file,
+                rollout_actor_wg=rollout_actor_wg
+            )
+
+            batched_responses = []
+            for b in batch:
+                response_text = self.tokenizer.decode(b.batch['responses'], skip_special_tokens=True)
+                
+                # 显示actor的回复日志
+                PrettyPrinter.section_header(f"🤖 Gen_General Actor Response")
+                PrettyPrinter.status(f"Question: {b.non_tensor_batch['question']}", "", "info")
+                PrettyPrinter.code_block(f"Actor Generated Response:\n{response_text}")
+                
+                # 如果使用了增强的proposer prompt，提取最后生成的问题
+                if hasattr(self, 'prompt_manager') and self.prompt_manager is not None:
+                    try:
+                        # 简单的提取最后一个question标签的方法
+                        import re
+                        question_pattern = r'<question>(.*?)</question>'
+                        questions = re.findall(question_pattern, response_text, re.DOTALL | re.IGNORECASE)
+                        if questions:
+                            final_question = questions[-1].strip()
+                            PrettyPrinter.status(f"Extracted Final Question: {final_question[:200]}..." if len(final_question) > 200 else f"Extracted Final Question: {final_question}", "", "success")
+                        else:
+                            PrettyPrinter.status("No question tags found in response", "", "warning")
+                    except Exception as e:
+                        PrettyPrinter.status(f"Failed to extract final question: {e}", "", "warning")
+                
+                batched_responses.append({
+                    'response': response_text,
+                    'uid': b.non_tensor_batch['uid'],
+                    'question': b.non_tensor_batch['question'],
+                })
+            
+            # Group responses by UID and evaluate with LLM
+            responses_by_uid = defaultdict(list)
+            for response in batched_responses:
+                responses_by_uid[response['uid']].append(response)
+
+            if self.judge_with_actor:
+                # Build evaluation prompts (one per generated answer)
+                eval_prompts = []
+                for uid, resp_list in responses_by_uid.items():
+                    for idx, resp in enumerate(resp_list):
+                        eval_text = self._generate_prompt_for_judge(resp["question"], resp["response"], prompt_type="together" if self.infer_together else "answer")
+                        if self.infer_together:
+                            PrettyPrinter.section_header(f"Creating prompt for actor evaluation of question and answer for difficulty score: {resp['question']}\n\n{resp['response']}")
+                        else:
+                            PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score: {resp['question']}\n\n{resp['response']}")
+                        eval_prompts.append({
+                            'prompt': [{'role': 'user', 'content': eval_text}],
+                            'uid': uid,
+                        })
+
+                # Optionally repeat judgments (n_samples) if desired
+                eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
+
+                temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
+                pd.DataFrame(eval_prompts).to_parquet(temp_judge_file)
+
+                judge_batch = self.rollout_with_actors(
+                    dataset_file=temp_judge_file,
+                    rollout_actor_wg=rollout_actor_wg
+                )
+
+                # Collect raw judge outputs
+                uid2_q_scores = defaultdict(list)
+                uid2_a_scores = defaultdict(list)
+
+                for jb in judge_batch:
+                    uid = jb.non_tensor_batch['uid']
+                    text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
+                    scores = self.extract_score_from_tags(text)
+                    print("Actor evaluation response:", text)
+                    try:
+                        if self.infer_together:
+                            # assert len(scores) == 2, f"Expected two scores in the response, got: {text}"
+                            q = (scores[0] - 1) / 9.0
+                            a = (scores[1] - 1) / 9.0
+                            uid2_q_scores[uid].append(min(1.0, max(0.0, q)))
+                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                        else:
+                            # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
+                            a = (scores[0] - 1) / 9.0
+                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                    except:
+                        print("Falling back to neutral scores.")
+                        pass
+
+                # Aggregate per original data_dict
+                for data_dict in data_dicts:
+                    uid = data_dict['uid']
+                    if uid2_a_scores.get(uid):
+                        avg_pred_scores.append(float(np.mean(uid2_a_scores[uid])))
+                    else:
+                        avg_pred_scores.append(0.5)
+                    if self.infer_together:
+                        if uid2_q_scores.get(uid):
+                            avg_gen_scores.append(float(np.mean(uid2_q_scores[uid])))
+                        else:
+                            avg_gen_scores.append(0.5)
+            else:
+                # Calculate average scores for each question
+                for data_dict in data_dicts:
+                    uid = data_dict['uid']
+                    if uid in responses_by_uid:
+                        gen_scores = []
+                        pred_scores = []
+                        for response_data in responses_by_uid[uid]:
+                            # Create evaluation prompt
+                            eval_prompt = self._generate_prompt_for_judge(
+                                response_data["question"],
+                                response_data["response"],
+                                prompt_type = "together" if self.infer_together else "answer",
+                            )
+                            if self.infer_together:
+                                PrettyPrinter.section_header(f"Creating prompt for actor evaluation of question and answer for difficulty score:: {response_data['question']}\n\n{response_data['response']}")
+                            else:
+                                PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score: {response_data['question']}\n\n{response_data['response']}")
+                            
+                            scores = self._generate_llm_response(eval_prompt)
+                            try:
+                                if not self.infer_together:
+                                    # assert len(scores) == 1, f"Expected one score in the response, got: {scores}"
+                                    pred_scores.append(scores[0])
+                                else:
+                                    # assert len(scores) == 2, f"Expected two scores in the response, got: {scores}"
+                                    gen_scores.append(scores[0])
+                                    pred_scores.append(scores[1])
+                            except:
+                                pass
+                        
+                        avg_pred_score = np.mean(pred_scores) if pred_scores else 0.5
+                        avg_pred_scores.append(avg_pred_score)
+                        if self.infer_together:
+                            avg_gen_score = np.mean(gen_scores) if gen_scores else 0.5
+                            avg_gen_scores.append(avg_gen_score)
+                    else:
+                        avg_pred_scores.append(0.5)
+                        if self.infer_together:
+                            avg_gen_scores.append(0.5)
+                        
+        except Exception as e:
+            import traceback
+            print(f"Error in solver score computation: {e}")
+            print(f"Error traceback: {traceback.format_exc()}")
+            avg_pred_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
+            if self.infer_together:
+                avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
+        
+        if self.normalize_batch_scores:
+            avg_gen_scores = self.normalize_scores_in_batch(avg_gen_scores)
+            avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
+
+        return avg_gen_scores, avg_pred_scores
+     
+    def _generate_llm_response(self, prompt: str) -> List[float]:
+        """Call the external LLM for evaluation."""
+        try:
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                top_p=self.top_p,
+                max_tokens=self.max_tokens,
+                stream=self.stream
+            )
+
+            result = ""
+            
+            if self.stream:
+                for chunk in completion:
+                    if chunk.choices[0].delta.content is not None:
+                        result += chunk.choices[0].delta.content
+                result = result.strip()
+            else:
+                result = completion.choices[0].message.content.strip()
+                
+            print(f"LLM Response: {result}")  # Debugging output
+                
+            # Use the new extract_score_from_tags function
+            extracted_scores = self.extract_score_from_tags(result)
+            if extracted_scores:
+                # Convert scores to 0-1 range
+                normalized_scores = []
+                for score in extracted_scores:
+                    # Assume scores are in 1-10 range, normalize to 0-1
+                    if score >= 1 and score <= 10:
+                        normalized_score = (score - 1) / 9.0
+                        normalized_scores.append(min(1.0, max(0.0, normalized_score)))
+                    else:
+                        # If score is already normalized or in different range, keep as is
+                        normalized_scores.append(min(1.0, max(0.0, score)))
+                return normalized_scores
+            else:
+                # Fallback: try to extract any number between 1-10
+                print("Falling back to match any number between 1-10.")
+                import re
+                fallback_match = re.findall(r'(\d+)', result)
+                if fallback_match:
+                    score_list = []
+                    for score in fallback_match:
+                        score = int(score)
+                        if 1 <= score <= 10:
+                            score = (score - 1) / 9.0
+                            score_list.append(min(1.0, max(0.0, score)))
+                    if score_list:
+                        return score_list
+                return [0.0]
+        except Exception as e:
+            print(f"Error in LLM response generation: {e}")
+            return [0.0]
+
+    def _generate_prompt_for_gen(self, data_dict: Dict, answer=None) -> str:
+        """Generate the LLM as judge prompt for evaluating the question generation quality."""
+        def extract_question(text):
+            pattern = r'<question>(.*?)</question>'
+            matches = re.findall(pattern, text, re.DOTALL)
+            return matches
+        question = extract_question(data_dict.get('generation', '').split("[Your designed task]")[-1])
+        if question != []:
+            question = question[-1].strip()
+        else:
+            question = "This is not a valid question."
+
+        if answer:
+            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="together")
+            PrettyPrinter.code_block(f"Generated prompt for question generation evaluation with paired answer:\n{prompt}")
+        else:
+            prompt = self._generate_prompt_for_judge(question, None, prompt_type="question")
+            PrettyPrinter.code_block(f"Generated prompt for question generation evaluation:\n{prompt}")
+        return prompt
+
+    def _generate_prompt_for_pred(self, data_dict: Dict, infer_together=False) -> str:
+        """Generate the LLM prompt for 'pred' type problems."""
+        question = data_dict.get('question', '')
+        answer = data_dict.get('answer', data_dict.get('generation', '')).split('[Your final answer to the question, structured and clear, without restating the question]')[-1]
+
+        if infer_together:
+            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="together")
+            PrettyPrinter.code_block(f"Generated prompt for answer evaluation with question:\n{prompt}")
+        else:
+            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="answer")
+            PrettyPrinter.code_block(f"Generated prompt for answer evaluation:\n{prompt}")
+        return prompt
+
+    def _compute_score_for_gen(self, data_dict: Dict, external_llm_score: float, solver_avg_score: float) -> float:
+        """For 'gen' problem type, combine LLM score and solver score."""
+        return 0.5 * external_llm_score + 0.5 * (1 - solver_avg_score)
+
+    def _compute_score_for_pred(self, external_llm_score: float) -> float:
+        """For 'pred' problem type, use the LLM score as the final score."""
+        return external_llm_score
+
+    def _evaluate_gen(self, data_dict: Dict, solver_avg_score: float, rollout_actor_wg=None) -> float:
+        """Evaluate a 'gen' problem type."""
+        prompt = self._generate_prompt_for_gen(data_dict)
+        external_llm_score = self._get_evaluation_score(prompt, rollout_actor_wg)
+        final_score = self._compute_score_for_gen(data_dict, external_llm_score, solver_avg_score)
+        return final_score
+
+    def _evaluate_pred(self, data_dict: Dict, rollout_actor_wg=None) -> float:
+        """Evaluate a 'pred' problem type."""
+        prompt = self._generate_prompt_for_pred(data_dict)
+        external_llm_score = self._get_evaluation_score(prompt, rollout_actor_wg)
+        final_score = self._compute_score_for_pred(external_llm_score)
+        return final_score
+        final_score = self._compute_score_for_pred(external_llm_score)
+        return final_score
+
+    def _get_data_dict(self, data_item: DataProtoItem, problem_type: str, banned_words: List[str], uid: str, banned_assertion_keywords: List[str]) -> Dict:
+        """
+        Extract data dictionary for GeneralIO tasks.
+        This method is simplified compared to CodeIORewardManager since GeneralIO tasks
+        don't require code execution validation.
+        """
+        prompt_ids = data_item.batch['prompts']
+        prompt_length = prompt_ids.shape[-1]
+        valid_prompt_length = data_item.batch['attention_mask'][:prompt_length].sum()
+        valid_prompt_ids = prompt_ids[-valid_prompt_length:]
+
+        response_ids = data_item.batch['responses']
+        valid_response_length = data_item.batch['attention_mask'][prompt_length:].sum()
+        valid_response_ids = response_ids[:valid_response_length]
+
+        # decode
+        sequences = torch.cat((valid_prompt_ids, valid_response_ids))
+        sequences_str = self.tokenizer.decode(sequences)
+
+        # Extract relevant information from non_tensor_batch
+        # For GeneralIO tasks, the ground_truth is typically the answer to the question
+        ground_truth = data_item.non_tensor_batch.get('reward_model', {}).get('ground_truth', '')
+        if not ground_truth:
+            ground_truth = data_item.non_tensor_batch.get('ground_truth', '')
+        
+        # The problem field contains the question for GeneralIO tasks
+        question = data_item.non_tensor_batch.get('problem', '')
+        if not question:
+            # Fallback to extracting from reward_model or other locations
+            question = data_item.non_tensor_batch.get('question', '')
+        
+        data_source = data_item.non_tensor_batch.get('data_source', '')
+        extra_info = data_item.non_tensor_batch.get('extra_info', {})
+        
+        non_special_tokens_sequences_str = self.tokenizer.decode(
+            self.tokenizer.encode(sequences_str), skip_special_tokens=True
+        )
+        
+        # Extract generation from response
+        try:
+            generation = non_special_tokens_sequences_str.split(self.splitter)[1].strip().strip('\"\'')
+        except (IndexError, AttributeError):
+            generation = non_special_tokens_sequences_str.strip()
+        
+        extracted_content = extract_answer(generation, self.reward_fn_extraction_type, boxed_retry=self.boxed_retry)
+        thought = extract_thought(generation)
+
+        data_dict = {
+            'generation': generation,
+            'question': question,  # The question/problem to solve
+            'ground_truth': ground_truth,  # The expected answer
+            'data_source': data_source,
+            'extra_info': extra_info,
+            'non_special_tokens_sequences_str': non_special_tokens_sequences_str,
+            'valid_response_length': valid_response_length,
+            'extracted_content': extracted_content,
+            'thought': thought,
+            'uid': uid,
+        }
+        
+        # Set answer for evaluation
+        if problem_type is None or problem_type.startswith('pred'):
+            data_dict['answer'] = extracted_content if extracted_content else generation
+        elif problem_type.startswith('gen'):
+            data_dict['answer'] = generation
+        
+        return data_dict
+        
+
+    def __call__(
+        self,
+        data: DataProto,
+        problem_type: str = None,
+        executor = None,
+        rollout_actor_wg = None,
+        banned_words: List[str] = [],
+        banned_assertion_keywords: List[str] = [],
+        n_samples: int = 1,
+        input_type_counters: Dict[str, Dict[str, int]] = None,
+        output_type_counters: Dict[str, Dict[str, int]] = None,
+        error_type_counters: Dict[str, Dict[str, int]] = None,
+        general_type_counters: Dict[str, Dict[str, int]] = None,
+    ) -> Tuple[torch.Tensor, Dict, List[Dict]]:
+        """
+        Main method for computing rewards for GeneralIO tasks.
+        
+        For 'gen' type: Uses LLM judge score + difficulty score (1 - solver average)
+        For 'pred' type: Uses LLM judge score directly
+        
+        Returns:
+            reward_tensor: Tensor of rewards for each sequence
+            all_scores: Dictionary containing various scores and metrics
+            valid_questions: List of valid questions/responses for dataset expansion
+        """
+
+        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
+        if 'rm_scores' in data.batch.keys():
+            return data.batch['rm_scores']
+
+        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+
+        all_scores = defaultdict(list)
+        data_dicts = []
+        valid_data = []  # For GeneralIO tasks, we track valid questions or question and answer pairs
+        uids = np.array([str(uuid.uuid4()) for _ in range(len(data))], dtype=object)
+        
+        if problem_type is None:
+            problem_types = [d.non_tensor_batch['extra_info'].get('metric', 'pred') for d in data]
+            problem_type = 'pred'  # dummy set
+        else:
+            problem_types = [problem_type] * len(data)
+            
+        PrettyPrinter.section_header("Getting Data Dicts for GeneralIO")
+        for i in range(len(data)):
+            data_dict = self._get_data_dict(data[i], problem_types[i], banned_words, uids[i], banned_assertion_keywords)
+            data_dicts.append(data_dict)
+
+        if problem_type.startswith('gen') and rollout_actor_wg is not None:
+            PrettyPrinter.section_header("Computing Generation Rewards for GeneralIO Tasks")
+            
+            # Step 1: Get solver average scores and llm scores(possibly) from actor model
+            print(f"[DEBUG] Getting all scores for problem_type: {problem_type}, rollout_actor_wg is None: {rollout_actor_wg is None}")
+            llm_scores, solver_avg_scores = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
+            print(f"[DEBUG] Got scores - LLM scores: {llm_scores[:3]}..., Solver avg scores: {solver_avg_scores[:3]}...")
+            
+            for i, data_dict in enumerate(data_dicts):
+                valid_response_length = data_dict['valid_response_length']
+                
+                # Compute combined score: LLM judge + difficulty (1 - solver average)
+                difficulty_score = 1 - solver_avg_scores[i]
+                final_score = 0.5 * llm_scores[i] + 0.5 * difficulty_score
+                
+                print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, final={final_score:.4f}")
+                
+                reward_tensor[i, valid_response_length - 1] = final_score
+                all_scores['llm_judge_score'].append(llm_scores[i])
+                all_scores['difficulty_score'].append(difficulty_score)
+                all_scores['combined_score'].append(final_score)
+                def extract_question(text):
+                    pattern = r'<question>(.*?)</question>'
+                    matches = re.findall(pattern, text, re.DOTALL)
+                    return matches
+                question = extract_question(data_dict.get('generation', '<question></question>').split("[Your designed task]")[-1])
+                if question != []:
+                    question = question[-1]
+                else:
+                    question = None
+                # For gen tasks, add to valid_questions
+                if question!=None:
+                    valid_data.append({
+                        'question': question,
+                        'generation': data_dict.get('generation', ''),
+                        'thought': data_dict.get('thought', ''),
+                        'answer': data_dict.get('generation', ''),
+                        'uid': data_dict['uid'],
+                    })
+                else:
+                    PrettyPrinter.section_header(f"Processing Question {i+1}/{len(data_dicts)}")
+                    PrettyPrinter.status(f"Question: {data_dict.get('question', '')}", "", "info")
+                    PrettyPrinter.status(f"Generation: {data_dict.get('generation', '')}", "", "info")
+                    PrettyPrinter.status(f"Thought: {data_dict.get('thought', '')}", "", "info")
+                    PrettyPrinter.status(f"LLM Judge Score: {llm_scores[i]:.4f}", f"Difficulty Score: {difficulty_score:.4f}", "info")
+                    PrettyPrinter.status(f"Combined Score: {final_score:.4f}", "", "info")
+                    print("\n" + "-"*80 + "\n")
+            all_scores['solver_avg_scores'] = solver_avg_scores
+            
+        elif problem_type.startswith('pred'):
+            PrettyPrinter.section_header("Computing Prediction Rewards for GeneralIO Tasks")
+            
+            llm_scores = []
+            _, llm_scores = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
+            
+            for i, data_dict in enumerate(data_dicts):
+                valid_response_length = data_dict['valid_response_length']
+                
+                if self.split == 'train':
+                    reward_tensor[i, valid_response_length - 1] = llm_scores[i]
+                    valid_data.append({
+                        'question': data_dict.get('question', ''),
+                        'answer': data_dict.get('answer', ''),
+                        'thought': data_dict.get('thought', ''),
+                        'reward_model': {
+                            'ground_truth': data_dict.get('ground_truth', ''),
+                        },
+                        'uid': data_dict['uid'],
+                    })
+                elif self.split == 'test':
+                    reward_tensor[i, valid_response_length - 1] = llm_scores[i]
+                    # test split pairs not saved
+                    # valid_data.append({
+                    #     'question': data_dict.get('question', ''),
+                    #     'answer': data_dict.get('answer', ''),
+                    #     'thought': data_dict.get('thought', ''),
+                    #     'uid': data_dict['uid'],
+                    # })
+                
+                all_scores['llm_judge_score'].append(llm_scores[i])
+            
+            all_scores['accuracy'] = all_scores['llm_judge_score']  # For compatibility
+        elif problem_type.startswith("judge"):
+            PrettyPrinter.section_header("Computing Judge Rewards for GeneralIO Tasks")
+            for i, data_dict in enumerate(data_dicts):
+                valid_response_length = data_dict['valid_response_length']
+                reward_tensor[i, valid_response_length - 1] = 0.5
+
+            all_scores['accuracy'] = [0.5] * len(data_dicts)  # Default neutral score for judge tasks
+        else:
+            # For other cases or when rollout_actor_wg is None
+            PrettyPrinter.section_header("Computing Default Rewards for GeneralIO Tasks")
+            for i, data_dict in enumerate(data_dicts):
+                valid_response_length = data_dict['valid_response_length']
+                reward_tensor[i, valid_response_length - 1] = 0.5  # Default neutral reward
+            
+            all_scores['accuracy'] = [0.5] * len(data_dicts)
+
+        return reward_tensor, all_scores, valid_data
+
+
+def evaluate_single_item(args):
+    """
+    Independent function to evaluate a single item using LLM.
+    This function can be called in parallel processes.
+    """
+    (item_data, model_name, temperature, max_tokens, top_p, stream) = args
+    
+    try:
+        # Create a new OpenAI client for this process
+        client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="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"
+        )
+        
+        model_answer = item_data['model_answer']
+        ground_truth = item_data['ground_truth']
+        metric_type = item_data['metric_type']
+        
+        # Generate evaluation prompt
+        if metric_type == "math_accuracy":
+            prompt = f"""Please evaluate whether the following mathematical answer is correct.
+
+Ground Truth Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze both answers in the <think> tags below:
+
+<think>
+Compare the mathematical content of both answers:
+- Do they arrive at the same final numerical result?
+- Is the reasoning correct in the model's answer?
+- Are there any mathematical errors?
+- Do they represent the same solution even if expressed differently?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the model's answer is mathematically correct and matches the ground truth
+- FALSE means the model's answer is mathematically incorrect or doesn't match the ground truth
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        elif metric_type == "multiple_choice_accuracy":
+            prompt = f"""Please evaluate whether the multiple choice answer is correct.
+
+Correct Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Compare the answers:
+- Does the model select the same choice letter as the ground truth?
+(If the model did not provide a letter, count it as incorrect)
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the model selected the exact correct choice
+- FALSE means the model selected the wrong choice
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        elif metric_type == "truthfulness_accuracy":
+            prompt = f"""Please evaluate the truthfulness and accuracy of the answer.
+
+Expected Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Evaluate the truthfulness:
+- Is the model's answer factually accurate?
+- Does it align with the expected truthful response?
+- Are there any misleading or false statements?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is truthful and accurate:
+- TRUE means the answer is truthful and accurate
+- FALSE means the answer contains false or misleading information
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        else:
+            # General accuracy evaluation
+            prompt = f"""Please evaluate whether the answer is correct and appropriate.
+
+Expected Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Compare the answers:
+- Does the model's answer provide accurate content?
+- Is the content appropriate and relevant?
+- How well does it match the expected response?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the answer is correct and appropriate
+- FALSE means the answer is incorrect or inappropriate
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        # Call LLM for evaluation
+        completion = client.chat.completions.create(
+            model=model_name,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stream=stream
+        )
+        
+        if stream:
+            result = ""
+            for chunk in completion:
+                if chunk.choices[0].delta.content is not None:
+                    result += chunk.choices[0].delta.content
+        else:
+            result = completion.choices[0].message.content.strip()
+        
+        # Extract TRUE/FALSE from <answer></answer> tags
+        answer_match = re.search(r'<answer>(TRUE|FALSE)</answer>', result, re.IGNORECASE)
+        if answer_match:
+            answer = answer_match.group(1).upper()
+            score = 1.0 if answer == "TRUE" else 0.0
+        else:
+            # Fallback: look for TRUE/FALSE anywhere in the response
+            if re.search(r'\bTRUE\b', result, re.IGNORECASE):
+                score = 1.0
+            elif re.search(r'\bFALSE\b', result, re.IGNORECASE):
+                score = 0.0
+            else:
+                # If no clear TRUE/FALSE found, default to FALSE (incorrect)
+                score = 0.0
+        
+        return {
+            'index': item_data['index'],
+            'score': score,
+            'evaluation_result': result
+        }
+        
+    except Exception as e:
+        print(f"Error evaluating item {item_data.get('index', 'unknown')}: {e}")
+        return {
+            'index': item_data.get('index', -1),
+            'score': 0.0,
+            'evaluation_result': f"Error: {str(e)}"
+        }
+
+
+class BenchmarkEvaluationRewardManager:
+    """Reward manager for evaluating on standard benchmarks like MATH, GSM8K, HellaSwag, etc."""
+    
+    def __init__(
+        self,
+        tokenizer: AutoTokenizer,
+        model_name: str = "meta/llama-3.1-405b-instruct",
+        temperature: float = 0.0,
+        max_tokens: int = 500,
+        top_p: float = 0.95,
+        stream: bool = False,
+        max_workers: int = 10,  # Number of parallel processes
+        **kwargs
+    ):
+        self.tokenizer = tokenizer
+        self.model_name = model_name
+        self.temperature = temperature
+        self.max_tokens = max_tokens
+        self.top_p = top_p
+        self.stream = stream
+        self.max_workers = min(max_workers, mp.cpu_count())  # Don't exceed CPU count
+        
+        # Initialize the external LLM client
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="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"
+        )
+        
+    def _generate_llm_evaluation(self, model_answer: str, ground_truth: str, metric_type: str) -> float:
+        """Use LLM to evaluate if model answer matches ground truth."""
+        
+        if metric_type == "math_accuracy":
+            prompt = f"""Please evaluate whether the following mathematical answer is correct.
+
+Ground Truth Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze both answers in the <think> tags below:
+
+<think>
+Compare the mathematical content of both answers:
+- Do they arrive at the same final numerical result?
+- Is the reasoning correct in the model's answer?
+- Are there any mathematical errors?
+- Do they represent the same solution even if expressed differently?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the model's answer is mathematically correct and matches the ground truth
+- FALSE means the model's answer is mathematically incorrect or doesn't match the ground truth
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        elif metric_type == "multiple_choice_accuracy":
+            prompt = f"""Please evaluate whether the multiple choice answer is correct.
+
+Correct Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Compare the answers:
+- Does the model select the same choice letter as the ground truth?
+(If the model did not provide a letter, count it as incorrect)
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the model selected the exact correct choice
+- FALSE means the model selected the wrong choice
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        elif metric_type == "truthfulness_accuracy":
+            prompt = f"""Please evaluate the truthfulness and accuracy of the answer.
+
+Expected Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Evaluate the truthfulness:
+- Is the model's answer factually accurate?
+- Does it align with the expected truthful response?
+- Are there any misleading or false statements?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is truthful and accurate:
+- TRUE means the answer is truthful and accurate
+- FALSE means the answer contains false or misleading information
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        else:
+            # General accuracy evaluation
+            prompt = f"""Please evaluate whether the answer is correct and appropriate.
+
+Expected Answer: {ground_truth}
+
+Model's Answer: {model_answer}
+
+First, analyze the answers in the <think> tags below:
+
+<think>
+Compare the answers:
+- Does the model's answer provide accurate content?
+- Is the content appropriate and relevant?
+- How well does it match the expected response?
+
+[Write your detailed analysis here]
+</think>
+
+Then determine if the model's answer is correct:
+- TRUE means the answer is correct and appropriate
+- FALSE means the answer is incorrect or inappropriate
+
+<answer>TRUE</answer> or <answer>FALSE</answer>"""
+
+        try:
+            PrettyPrinter.code_block(f"Generated LLM Evaluation Prompt:\n{prompt}")
+            completion = self.client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=self.temperature,
+                top_p=self.top_p,
+                max_tokens=self.max_tokens,
+                stream=self.stream
+            )
+            
+            if self.stream:
+                result = ""
+                for chunk in completion:
+                    if chunk.choices[0].delta.content is not None:
+                        result += chunk.choices[0].delta.content
+            else:
+                result = completion.choices[0].message.content.strip()
+            
+            PrettyPrinter.code_block(f"LLM Evaluation Result:\n{result}")
+            # Extract TRUE/FALSE from <answer></answer> tags
+            answer_match = re.search(r'<answer>(TRUE|FALSE)</answer>', result, re.IGNORECASE)
+            if answer_match:
+                answer = answer_match.group(1).upper()
+                return 1.0 if answer == "TRUE" else 0.0
+            else:
+                # Fallback: look for TRUE/FALSE anywhere in the response
+                if re.search(r'\bTRUE\b', result, re.IGNORECASE):
+                    return 1.0
+                elif re.search(r'\bFALSE\b', result, re.IGNORECASE):
+                    return 0.0
+                else:
+                    # If no clear TRUE/FALSE found, default to FALSE (incorrect)
+                    return 0.0
+                
+        except Exception as e:
+            print(f"Error in LLM evaluation: {e}")
+            return 0.0
+    
+    def _extract_model_answer(self, generation: str) -> str:
+        """Extract the model's answer from the generation."""
+        # Try to extract answer from common patterns
+        generation = generation.strip()
+        
+        # Look for final answer patterns
+        patterns = [
+            r"(?:the answer is|answer:|final answer:)\s*(.+?)(?:\n|$)",
+            r"(?:therefore|thus|so),?\s*(.+?)(?:\n|$)",
+            r"\$\$(.+?)\$\$",  # LaTeX math
+            r"####\s*(.+?)(?:\n|$)",  # GSM8K format
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, generation, re.IGNORECASE | re.DOTALL)
+            if match:
+                return match.group(1).strip()
+        
+        # If no specific pattern found, use the last line or last sentence
+        lines = generation.split('\n')
+        for line in reversed(lines):
+            line = line.strip()
+            if line and not line.startswith('(') and len(line) < 200:
+                return line
+        
+        # Fallback to first 100 characters
+        return generation[:100] + "..." if len(generation) > 100 else generation
+    
+    def _get_question_from_prompt(self, prompt_data: List[Dict]) -> str:
+        """Extract question from prompt data."""
+        if prompt_data and len(prompt_data) > 0:
+            return prompt_data[0].get('content', '')
+        return ''
+    
+    def __call__(
+        self,
+        data: DataProto,
+        **kwargs
+    ) -> Tuple[torch.Tensor, Dict]:
+        """
+        Evaluate model generations against benchmark ground truths.
+        
+        Returns:
+            reward_tensor: Tensor of evaluation scores
+            metrics: Dictionary of evaluation metrics
+        """
+        
+        try:
+            reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+            
+            all_scores = defaultdict(list)
+            correct_predictions = []
+            
+            PrettyPrinter.section_header("Benchmark Evaluation (Multi-process)")
+            
+            data_length = len(data)
+            PrettyPrinter.status("Info", f"Processing {data_length} items with {self.max_workers} workers", "info")
+            
+            # Prepare evaluation tasks
+            evaluation_tasks = []
+            item_info = []  # Store original item info for later processing
+            
+            for i in range(data_length):
+                try:
+                    data_item = data[i]
+                    
+                    # Extract information
+                    prompt_data = data_item.non_tensor_batch.get('prompt', [])
+                    question = self._get_question_from_prompt(prompt_data)
+                    ground_truth = data_item.non_tensor_batch.get('answer', '')
+                    data_source = data_item.non_tensor_batch.get('data_source', 'unknown')
+                    extra_info = data_item.non_tensor_batch.get('extra_info', {})
+                    metric_type = extra_info.get('metric', 'general_accuracy')
+                    
+                    # Get model generation
+                    response_ids = data_item.batch['responses']
+                    generation = self.tokenizer.decode(response_ids, skip_special_tokens=True)
+                    model_answer = self._extract_model_answer(generation)
+                    
+                    # Store item info for later processing
+                    valid_response_length = data_item.batch['attention_mask'][len(data_item.batch['prompts']):].sum()
+                    item_info.append({
+                        'index': i,
+                        'question': question,
+                        'model_answer': model_answer,
+                        'ground_truth': ground_truth,
+                        'data_source': data_source,
+                        'metric_type': metric_type,
+                        'valid_response_length': valid_response_length
+                    })
+                    
+                    # Prepare task for multiprocessing
+                    task_data = {
+                        'index': i,
+                        'model_answer': model_answer,
+                        'ground_truth': ground_truth,
+                        'metric_type': metric_type
+                    }
+                    
+                    evaluation_tasks.append((
+                        task_data,
+                        self.model_name,
+                        self.temperature,
+                        self.max_tokens,
+                        self.top_p,
+                        self.stream
+                    ))
+                    
+                except Exception as e:
+                    PrettyPrinter.status("Error", f"Failed to prepare item {i}: {str(e)}", "error")
+                    # Add default task to maintain indexing
+                    task_data = {
+                        'index': i,
+                        'model_answer': '',
+                        'ground_truth': '',
+                        'metric_type': 'general_accuracy'
+                    }
+                    evaluation_tasks.append((
+                        task_data,
+                        self.model_name,
+                        self.temperature,
+                        self.max_tokens,
+                        self.top_p,
+                        self.stream
+                    ))
+                    item_info.append({
+                        'index': i,
+                        'question': '',
+                        'model_answer': '',
+                        'ground_truth': '',
+                        'data_source': 'unknown',
+                        'metric_type': 'general_accuracy',
+                        'valid_response_length': 1
+                    })
+                    continue
+            
+            # Execute evaluations in parallel
+            PrettyPrinter.status("Info", f"Starting parallel evaluation with {len(evaluation_tasks)} tasks", "info")
+            
+            evaluation_results = {}
+            if self.max_workers > 1:
+                # Use multiprocessing
+                with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                    future_to_index = {executor.submit(evaluate_single_item, task): task[0]['index'] for task in evaluation_tasks}
+                    
+                    for future in as_completed(future_to_index):
+                        try:
+                            result = future.result()
+                            evaluation_results[result['index']] = result
+                        except Exception as e:
+                            index = future_to_index[future]
+                            PrettyPrinter.status("Error", f"Evaluation failed for item {index}: {str(e)}", "error")
+                            evaluation_results[index] = {
+                                'index': index,
+                                'score': 0.0,
+                                'evaluation_result': f"Process error: {str(e)}"
+                            }
+            else:
+                # Single-threaded fallback
+                for task in evaluation_tasks:
+                    result = evaluate_single_item(task)
+                    evaluation_results[result['index']] = result
+            
+            # Process results and populate reward tensor
+            for info in item_info:
+                i = info['index']
+                result = evaluation_results.get(i, {'score': 0.0})
+                score = result['score']
+                
+                # Store score in reward tensor
+                valid_response_length = info['valid_response_length']
+                if valid_response_length > 0:
+                    reward_tensor[i, valid_response_length - 1] = score
+                else:
+                    reward_tensor[i, -1] = score
+                
+                # Track metrics
+                all_scores['accuracy'].append(score)
+                all_scores[f'accuracy_{info["data_source"]}'].append(score)
+                all_scores[f'accuracy_{info["metric_type"]}'].append(score)
+                
+                # Count as correct if score is 1.0 (TRUE)
+                if score == 1.0:
+                    correct_predictions.append({
+                        'question': info['question'],
+                        'model_answer': info['model_answer'],
+                        'ground_truth': info['ground_truth'],
+                        'score': score,
+                        'data_source': info['data_source']
+                    })
+                
+                PrettyPrinter.status(
+                    f"Sample {i+1}", 
+                    f"Source: {info['data_source']}, Correct: {'✓' if score == 1.0 else '✗'}", 
+                    "success" if score == 1.0 else "warning"
+                )
+            
+            # Calculate overall metrics
+            overall_accuracy = np.mean(all_scores['accuracy']) if all_scores['accuracy'] else 0.0
+            
+            # Calculate per-source accuracies
+            source_accuracies = {}
+            for key in all_scores:
+                if key.startswith('accuracy_') and key != 'accuracy':
+                    source_name = key.replace('accuracy_', '')
+                    source_accuracies[f'val/benchmark_accuracy/{source_name}'] = np.mean(all_scores[key])
+            
+            metrics = {
+                'val/benchmark_accuracy/overall': overall_accuracy,
+                'val/benchmark_correct_count': len(correct_predictions),
+                'val/benchmark_total_count': len(data),
+                **source_accuracies
+            }
+            
+            PrettyPrinter.status(
+                "Evaluation Complete", 
+                f"Overall Accuracy: {overall_accuracy:.3f} ({len(correct_predictions)}/{len(data)}) using {self.max_workers} workers",
+                "success"
+            )
+            
+            return reward_tensor, metrics
+            
+        except Exception as e:
+            PrettyPrinter.status("Error", f"Benchmark evaluation failed: {str(e)}", "error")
+            import traceback
+            traceback.print_exc()
+            
+            # Return empty results on error
+            reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+            return reward_tensor, {}
