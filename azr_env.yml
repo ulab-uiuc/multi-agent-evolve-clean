@@ -1,4 +1,4 @@
-name: azr
+name: mae
 channels:
   - nvidia/label/cuda-12.4.1
   - defaults

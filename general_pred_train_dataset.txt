@@ -1,0 +1,2 @@
+Problem type: general, Dataset size: 16
+Dataset: <absolute_zero_reasoner.utils.dataset.rl_dataset.RLHFDataset object at 0x7f92b81aa710>

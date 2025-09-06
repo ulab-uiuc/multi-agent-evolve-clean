@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="8,9"
+export CUDA_VISIBLE_DEVICES="1,2"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -28,14 +28,9 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.actor.use_kl_loss=False \
-    actor_rollout_ref.actor.kl_loss_coef=0.0 \
-    actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.pretrained_tokenizer=True \
-    actor_rollout_ref.actor.fsdp_config.param_offload=False \
-    actor_rollout_ref.actor.fsdp_config.grad_offload=False \
-    actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     +actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     +actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
@@ -47,7 +42,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.rollout.n=1 \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
-    +algorithm.kl_ctrl.kl_coef=0.0 \
+    algorithm.kl_ctrl.kl_coef=0.0 \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
@@ -88,7 +83,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
     trainer.resume_mode=disable \
-    +trainer.total_epochs=30 \
+    trainer.total_epochs=30 \
     azr.enable_actor_prompt_optimization=true \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \
