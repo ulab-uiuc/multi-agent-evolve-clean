@@ -1206,7 +1206,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                     adv_estimator=self.config.algorithm.adv_estimator,
                                     gamma=self.config.algorithm.gamma,
                                     lam=self.config.algorithm.lam,
-                                    num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                    num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                    config=self.config.algorithm)
 
         gc.collect()
         return batch, metrics
