@@ -88,7 +88,7 @@ class TaskRunner:
         config.prompt_optimization_dir = f"{experiment_base_dir}/prompt_optimization"
         
         # Set checkpoint directory
-        config.trainer.default_local_dir = f"/data/yidingw/checkpoints/general/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
+        config.trainer.default_local_dir = f"./checkpoints/general/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
         
         # Set output directories for prompt optimization and benchmark tracking
         if hasattr(config, 'azr') and hasattr(config.azr, 'prompt_optimization'):

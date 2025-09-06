@@ -342,6 +342,7 @@ AZR shows consistent improvements across model sizes and types:
 conda env create -f azr_env.yml
 conda activate azr
 pip install -r flashattn_requirements.txt
+python scripts/prepare_test_datasets.py 
 ```
 
 ## 💾 Data Processing

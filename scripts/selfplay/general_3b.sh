@@ -53,7 +53,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.remove_previous_ckpt_in_save=True \
     trainer.del_local_ckpt_after_load=True \
     trainer.test_freq=25 \
-    +trainer.val_before_train=false \
+    +trainer.val_before_train=true \
     reward_fn.extraction_type=boxed \
     reward_fn.math_metric=deepscaler \
     reward_fn.llm_model_name="nvidia/llama-3.1-nemotron-70b-instruct" \

@@ -220,15 +220,15 @@ def main():
     print(f"Number of samples per dataset: {args.num_samples or 'All'}")
     
     # Load and save datasets
-    # if "math" in datasets_to_load:
-    #     print("\nLoading MATH dataset...")
-    #     math_data = load_math_dataset(num_samples=args.num_samples)
-    #     save_dataset_to_parquet(math_data, args.output_dir, "math")
+    if "math" in datasets_to_load:
+        print("\nLoading MATH dataset...")
+        math_data = load_math_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(math_data, args.output_dir, "math")
     
-    # if "gsm8k" in datasets_to_load:
-    #     print("\nLoading GSM8K dataset...")
-    #     gsm8k_data = load_gsm8k_dataset(num_samples=args.num_samples)
-    #     save_dataset_to_parquet(gsm8k_data, args.output_dir, "gsm8k")
+    if "gsm8k" in datasets_to_load:
+        print("\nLoading GSM8K dataset...")
+        gsm8k_data = load_gsm8k_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(gsm8k_data, args.output_dir, "gsm8k")
     
     # if "hellaswag" in datasets_to_load:
     #     print("\nLoading HellaSwag dataset...")
@@ -243,18 +243,18 @@ def main():
             mmlu_data = load_mmlu_dataset(subject=subject, num_samples=args.num_samples)
             save_dataset_to_parquet(mmlu_data, args.output_dir, f"mmlu_{subject}")
     
-    # if "arc" in datasets_to_load:
-    #     print("\nLoading ARC dataset...")
-    #     arc_challenge_data = load_arc_dataset(challenge=True, num_samples=args.num_samples)
-    #     save_dataset_to_parquet(arc_challenge_data, args.output_dir, "arc_challenge")
+    if "arc" in datasets_to_load:
+        print("\nLoading ARC dataset...")
+        arc_challenge_data = load_arc_dataset(challenge=True, num_samples=args.num_samples)
+        save_dataset_to_parquet(arc_challenge_data, args.output_dir, "arc_challenge")
         
-    #     arc_easy_data = load_arc_dataset(challenge=False, num_samples=args.num_samples)
-    #     save_dataset_to_parquet(arc_easy_data, args.output_dir, "arc_easy")
+        arc_easy_data = load_arc_dataset(challenge=False, num_samples=args.num_samples)
+        save_dataset_to_parquet(arc_easy_data, args.output_dir, "arc_easy")
     
-    # if "truthfulqa" in datasets_to_load:
-    #     print("\nLoading TruthfulQA dataset...")
-    #     truthfulqa_data = load_truthfulqa_dataset(num_samples=args.num_samples)
-    #     save_dataset_to_parquet(truthfulqa_data, args.output_dir, "truthfulqa")
+    if "truthfulqa" in datasets_to_load:
+        print("\nLoading TruthfulQA dataset...")
+        truthfulqa_data = load_truthfulqa_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(truthfulqa_data, args.output_dir, "truthfulqa")
     
     print(f"\nAll datasets prepared and saved to {args.output_dir}")
 
