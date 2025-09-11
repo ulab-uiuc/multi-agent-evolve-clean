@@ -1051,11 +1051,15 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             if len(judge_train_dataset) == 0:
                 PrettyPrinter.status("ERROR", f"Judge dataset is completely empty for {problem_type}. Judge training will be skipped.", "error")
                 return None
-            else:
-                # Use smaller batch size and don't drop last incomplete batch
-                actual_batch_size = min(self.config.data.train_batch_size, len(judge_train_dataset))
-                drop_last = False
-                PrettyPrinter.status("WARN", f"Judge dataset size ({len(judge_train_dataset)}) is smaller than batch_size ({self.config.data.train_batch_size}). Using batch_size={actual_batch_size} and drop_last=False", "warn")
+            PrettyPrinter.status("WARN", f"Judge dataset too small to construct a complete batch. Judge training will be skipped", "error")
+            return None
+            # drop_last = False will cause problem in DataProto chunking
+            # maybe fix later
+            # else:
+            #     # Use smaller batch size and don't drop last incomplete batch
+            #     actual_batch_size = min(self.config.data.train_batch_size, len(judge_train_dataset))
+            #     drop_last = False
+            #     PrettyPrinter.status("WARN", f"Judge dataset size ({len(judge_train_dataset)}) is smaller than batch_size ({self.config.data.train_batch_size}). Using batch_size={actual_batch_size} and drop_last=False", "warn")
         
         judge_train_dataloader = DataLoader(dataset=judge_train_dataset,
                                            batch_size=actual_batch_size,
@@ -1217,7 +1221,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (with full io_item structure)")
 
         examples = []
-        examples_pair = []
+        example_pairs = []
         split = "train"  # or "seed" if you prefer
 
         # Track global index
@@ -1272,23 +1276,25 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     }
                 }
                 examples.append(io_item)
-                examples_pair.append(io_item_pair)
+                example_pairs.append(io_item_pair)
                 idx += 1
             PrettyPrinter.status("INFO", f"Loaded {len(general_samples)} FusionBench examples", "info")
         except Exception as e:
             PrettyPrinter.status("WARNING", f"Failed to load FusionBench: {str(e)}", "warn")
 
         # Shuffle and truncate
-        random.shuffle(examples)
-        random.shuffle(examples_pair)
+        ex = list(zip(examples, example_pairs))
+        random.shuffle(ex)
+        examples, example_pairs = zip(*ex)
         seed_examples = examples[:1000]
+        seed_example_pairs = example_pairs[:1000]
 
         # Upload to ray
         ray.get(self.dataset_manager.add_general_batch.remote(seed_examples, self.global_steps))
         PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(seed_examples)} examples", "success")
 
-        ray.get(self.dataset_manager.add_general_pair_batch.remote(examples_pair, self.global_steps))
-        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(examples_pair)} examples pairs", "success")
+        ray.get(self.dataset_manager.add_general_pair_batch.remote(seed_example_pairs, self.global_steps))
+        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(seed_example_pairs)} examples pairs", "success")
 
     def fit(self):
         """
