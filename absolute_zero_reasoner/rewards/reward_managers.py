@@ -1317,13 +1317,29 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     rollout_actor_wg=rollout_actor_wg
                 )
 
+                # Create uid to prompt mapping for dumping
+                uid_to_prompt = {}
+                for ep in eval_prompts:
+                    uid_to_prompt[ep['uid']] = ep['prompt'][0]['content']
+                
                 # Collect raw judge outputs
                 uid2_a_scores = defaultdict(list)
+                
+                # Open file for dumping evaluation results
+                eval_file = open("eval.txt", "a")
 
                 for jb in judge_batch:
                     uid = jb.non_tensor_batch['uid']
                     text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
                     scores = self.extract_score_from_tags(text)
+                    
+                    # Dump prompt and evaluation response to file separated by ===
+                    eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
+                    eval_file.write("\n==================\n")
+                    eval_file.write(text)
+                    eval_file.write("\n==================\n\n")
+                    eval_file.flush()
+                    
                     print("Actor evaluation response:", text)
                     try:
                         # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
@@ -1338,6 +1354,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     except:
                         print("Falling back to neutral scores.")
                         pass
+                
+                # Close the evaluation file
+                eval_file.close()
 
                 # Aggregate per original data_dict
                 for data_dict in data_dicts:
