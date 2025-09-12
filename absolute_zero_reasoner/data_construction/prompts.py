@@ -92,24 +92,6 @@ This prompt is intended to help construct the **task itself**, not example answe
 
 ---
 
-### Output Format:
-
-You must structure your response in two blocks using the tags below:
-
-- The `<think>` section should contain your rationale or cognitive goal for the task. (Optional)
-- The `<question>` section should contain the full task shown to the test subject.
-
-### Output Template:
-
-```<think>
-[Why is this task interesting? What reasoning type does it test — deduction, simulation, abstraction, generation, contradiction detection, etc.?]
-</think>
-
-<question>
-[Write the task as it would be presented. Use clear formatting. This should be solvable without needing input/output examples.]
-</question>
-
-### Reference Questions:
 """
 
 general_prediction_prompt = """
