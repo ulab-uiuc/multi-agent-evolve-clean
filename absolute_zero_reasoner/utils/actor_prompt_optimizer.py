@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from absolute_zero_reasoner.utils.prompt_manager import PromptManager
-
+from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
 
 @dataclass 
 class ProtectedRegion:
@@ -40,44 +40,44 @@ class ActorPromptOptimizer:
                 ProtectedRegion(
                     name='question_variable',
                     pattern=r'\{question\}',
-                    description='Question template variable - must be present for input'
+                    description='Question template variable - must be present for input as {question}'
                 ),
                 ProtectedRegion(
                     name='answer_tags',
                     pattern=r'<answer>.*?</answer>',
-                    description='Answer output tags for structured response'
+                    description='Answer output tags for structured response - must include <answer>...</answer>'
                 )
             ],
             'judge_answer': [
                 ProtectedRegion(
                     name='think_tags',
                     pattern=r'<think>',
-                    description='Think opening tags'
+                    description='Think opening tags - must include <think>...'
                 ),
                 ProtectedRegion(
                     name='think_close_tags', 
                     pattern=r'</think>',
-                    description='Think closing tags'
+                    description='Think closing tags - must include </think>'
                 ),
                 ProtectedRegion(
                     name='score_tags',
                     pattern=r'<score>',
-                    description='Score opening tags'
+                    description='Score opening tags - must include <score>...'
                 ),
                 ProtectedRegion(
                     name='score_close_tags',
                     pattern=r'</score>',
-                    description='Score closing tags'
+                    description='Score closing tags - must include </score>'
                 ),
                 ProtectedRegion(
                     name='question_variable',
                     pattern=r'\{question\}',
-                    description='Question template variable'
+                    description='Question template variable - must be present as {question}'
                 ),
                 ProtectedRegion(
                     name='answer_variable',
                     pattern=r'\{answer\}',
-                    description='Answer template variable'
+                    description='Answer template variable - must be present as {answer}'
                 ),
                 ProtectedRegion(
                     name='score_range',
@@ -89,27 +89,27 @@ class ActorPromptOptimizer:
                 ProtectedRegion(
                     name='think_tags',
                     pattern=r'<think>',
-                    description='Think opening tags'
+                    description='Think opening tags - must include <think>...'
                 ),
                 ProtectedRegion(
                     name='think_close_tags', 
                     pattern=r'</think>',
-                    description='Think closing tags'
+                    description='Think closing tags - must include </think>'
                 ),
                 ProtectedRegion(
                     name='score_tags',
                     pattern=r'<score>',
-                    description='Score opening tags'
+                    description='Score opening tags - must include <score>...'
                 ),
                 ProtectedRegion(
                     name='score_close_tags',
                     pattern=r'</score>',
-                    description='Score closing tags'
+                    description='Score closing tags - must include </score>'
                 ),
                 ProtectedRegion(
                     name='question_variable',
                     pattern=r'\{question\}',
-                    description='Question template variable'
+                    description='Question template variable - must be present as {question}'
                 ),
                 ProtectedRegion(
                     name='score_range',
@@ -121,32 +121,32 @@ class ActorPromptOptimizer:
                 ProtectedRegion(
                     name='think_tags',
                     pattern=r'<think>',
-                    description='Think opening tags'
+                    description='Think opening tags - must include <think>...'
                 ),
                 ProtectedRegion(
                     name='think_close_tags', 
                     pattern=r'</think>',
-                    description='Think closing tags'
+                    description='Think closing tags - must include </think>'
                 ),
                 ProtectedRegion(
                     name='score_tags',
                     pattern=r'<score>',
-                    description='Score opening tags'
+                    description='Score opening tags - must include <score>...'
                 ),
                 ProtectedRegion(
                     name='score_close_tags',
                     pattern=r'</score>',
-                    description='Score closing tags'
+                    description='Score closing tags - must include </score>'
                 ),
                 ProtectedRegion(
                     name='question_variable',
                     pattern=r'\{question\}',
-                    description='Question template variable'
+                    description='Question template variable - must be present as {question}'
                 ),
                 ProtectedRegion(
                     name='answer_variable',
                     pattern=r'\{answer\}',
-                    description='Answer template variable'
+                    description='Answer template variable - must be present as {answer}'
                 ),
                 ProtectedRegion(
                     name='score_range',
@@ -159,32 +159,32 @@ class ActorPromptOptimizer:
                 ProtectedRegion(
                     name='think_tags',
                     pattern=r'<think>',
-                    description='Think opening tags'
+                    description='Think opening tags - must include <think>...'
                 ),
                 ProtectedRegion(
                     name='think_close_tags', 
                     pattern=r'</think>',
-                    description='Think closing tags'
+                    description='Think closing tags - must include </think>'
                 ),
                 ProtectedRegion(
                     name='score_tags',
                     pattern=r'<score>',
-                    description='Score opening tags'
+                    description='Score opening tags - must include <score>...'
                 ),
                 ProtectedRegion(
                     name='score_close_tags',
                     pattern=r'</score>',
-                    description='Score closing tags'
+                    description='Score closing tags - must include </score>'
                 ),
                 ProtectedRegion(
                     name='question_variable',
                     pattern=r'\{question\}',
-                    description='Question template variable'
+                    description='Question template variable - must be present as {question}'
                 ),
                 ProtectedRegion(
                     name='answer_variable',
                     pattern=r'\{answer\}',
-                    description='Answer template variable'
+                    description='Answer template variable - must be present as {answer}'
                 ),
                 ProtectedRegion(
                     name='score_range',
@@ -196,22 +196,22 @@ class ActorPromptOptimizer:
                 ProtectedRegion(
                     name='think_tags',
                     pattern=r'<think>',
-                    description='Think opening tags'
+                    description='Think opening tags - must include <think>...'
                 ),
                 ProtectedRegion(
                     name='think_close_tags',
                     pattern=r'</think>',
-                    description='Think closing tags'
+                    description='Think closing tags - must include </think> '
                 ),
                 ProtectedRegion(
                     name='question_tags',
                     pattern=r'<question>',
-                    description='Question opening tags'
+                    description='Question opening tags - must include <question>...'
                 ),
                 ProtectedRegion(
                     name='question_close_tags',
                     pattern=r'</question>',
-                    description='Question closing tags'
+                    description='Question closing tags - must include </question>'
                 )
             ]
         }
@@ -270,7 +270,11 @@ class ActorPromptOptimizer:
                 print(f"[DEBUG] ActorPromptOptimizer: Error optimizing {prompt_type}: {e}")
         
         # Save optimization history
+        print(f"[DEBUG] ActorPromptOptimizer: About to save optimization history")
+        print(f"[DEBUG] ActorPromptOptimizer: Optimized prompts to save: {list(optimized_prompts.keys())}")
+        print(f"[DEBUG] ActorPromptOptimizer: Benchmark analysis length: {len(benchmark_analysis)}")
         self._save_optimization_history(optimized_prompts, benchmark_analysis, step)
+        print(f"[DEBUG] ActorPromptOptimizer: Completed optimization history save attempt")
         
         return optimized_prompts
     
@@ -299,7 +303,7 @@ class ActorPromptOptimizer:
 {self._get_protected_elements_description(prompt_type)}
 
 **Task:** 
-Improve the {prompt_type} prompt to address the identified issues while preserving all protected elements.
+Improve the {prompt_type} prompt to address the identified issues while preserving all protected elements and don't add any new protected elements.
 
 **Guidelines:**
 1. Keep the exact structure and format of protected elements
@@ -307,6 +311,7 @@ Improve the {prompt_type} prompt to address the identified issues while preservi
 3. Be specific about addressing the identified performance issues
 4. Keep improvements concise and actionable
 5. Ensure the improved prompt maintains compatibility with existing chat templates
+6. DO NOT add new template variables like {{your_answer}}, {{user_input}}, etc. - only use existing variables
 
 **Output Format:**
 Provide the improved prompt within <improved_prompt> tags:
@@ -389,6 +394,7 @@ Also explain your changes within <explanation> tags:
                 response = self.model_interface(optimization_prompt)
                 
             print(f"[DEBUG] ActorPromptOptimizer: Received response of length {len(response)}")
+            print(f"[DEBUG] ActorPromptOptimizer: Response content: {response}")  
             return response
             
         except Exception as e:
@@ -413,6 +419,11 @@ Also explain your changes within <explanation> tags:
         # Validate that protected regions are preserved
         if not self._validate_protected_regions(prompt_type, improved_prompt):
             print(f"[DEBUG] ActorPromptOptimizer: Protected regions validation failed")
+            return current_template
+        
+        # Check for unauthorized template variables
+        if not self._validate_template_variables(current_template, improved_prompt):
+            print(f"[DEBUG] ActorPromptOptimizer: Template variable validation failed")
             return current_template
         
         # Additional safety checks
@@ -543,6 +554,32 @@ Also explain your changes within <explanation> tags:
         
         return True
     
+    def _validate_template_variables(self, original_prompt: str, improved_prompt: str) -> bool:
+        """Validate that no new unauthorized template variables were added"""
+        
+        # Extract all template variables from both prompts
+        original_vars = set(re.findall(r'\{[^}]+\}', original_prompt))
+        improved_vars = set(re.findall(r'\{[^}]+\}', improved_prompt))
+        
+        # Find new variables in the improved prompt
+        new_vars = improved_vars - original_vars
+        
+        if new_vars:
+            print(f"[DEBUG] ActorPromptOptimizer: New template variables detected: {new_vars}")
+            
+            # Allow only very specific new variables that are safe
+            allowed_new_vars = {}
+            
+            unauthorized_vars = new_vars - allowed_new_vars
+            if unauthorized_vars:
+                print(f"[DEBUG] ActorPromptOptimizer: Unauthorized template variables: {unauthorized_vars}")
+                print(f"[DEBUG] ActorPromptOptimizer: Only allowed new variables: {allowed_new_vars}")
+                return False
+            else:
+                print(f"[DEBUG] ActorPromptOptimizer: New variables are authorized: {new_vars}")
+        
+        return True
+    
     def _basic_safety_checks(self, improved_prompt: str) -> bool:
         """Perform basic safety checks on the improved prompt"""
         
@@ -564,14 +601,64 @@ Also explain your changes within <explanation> tags:
                 print(f"[DEBUG] ActorPromptOptimizer: Dangerous pattern detected: {pattern}")
                 return False
         
+        # Check for new template variables that could affect chat templates
+        # These are forbidden variables that might interfere with chat template processing
+        forbidden_template_vars = [
+            r'\{your_answer\}',
+            r'\{user_input\}', 
+            r'\{assistant_response\}',
+            r'\{system_message\}',
+            r'\{chat_template\}',
+            r'\{user_prompt\}',
+            r'\{ai_response\}',
+            r'\{model_response\}',
+            r'\{conversation\}',
+            r'\{dialogue\}',
+            r'\{user_query\}',
+            r'\{bot_response\}',
+            r'\{human_input\}',
+            r'\{machine_output\}',
+            r'\{input_text\}',
+            r'\{output_text\}',
+            r'\{prompt_template\}',
+            r'\{instruction_template\}',
+        ]
+        
+        for forbidden_var in forbidden_template_vars:
+            if re.search(forbidden_var, improved_prompt, re.IGNORECASE):
+                print(f"[DEBUG] ActorPromptOptimizer: Forbidden template variable detected: {forbidden_var}")
+                print(f"[DEBUG] ActorPromptOptimizer: This could interfere with chat template processing")
+                return False
+        
         return True
     
     def _save_optimization_history(self, optimized_prompts: Dict[str, str], 
                                   benchmark_analysis: str, step: int):
         """Save optimization history to disk"""
         
+        print(f"[DEBUG] ActorPromptOptimizer: Starting to save optimization history for step {step}")
+        print(f"[DEBUG] ActorPromptOptimizer: Output directory: {self.output_dir}")
+        print(f"[DEBUG] ActorPromptOptimizer: Directory exists: {self.output_dir.exists()}")
+        print(f"[DEBUG] ActorPromptOptimizer: Number of optimized prompts: {len(optimized_prompts)}")
+        
         try:
+            # Ensure output directory exists
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[DEBUG] ActorPromptOptimizer: Ensured output directory exists")
+            
             history_file = self.output_dir / f"optimization_history_step_{step}.json"
+            print(f"[DEBUG] ActorPromptOptimizer: Target file path: {history_file}")
+            
+            # Check if we have write permissions
+            try:
+                test_file = self.output_dir / "test_write.tmp"
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                test_file.unlink()  # Delete test file
+                print(f"[DEBUG] ActorPromptOptimizer: Write permissions verified")
+            except Exception as perm_e:
+                print(f"[DEBUG] ActorPromptOptimizer: Write permission test failed: {perm_e}")
+                return
             
             history_data = {
                 'step': step,
@@ -582,13 +669,33 @@ Also explain your changes within <explanation> tags:
                                         for r in v] for k, v in self.protected_regions.items()}
             }
             
+            print(f"[DEBUG] ActorPromptOptimizer: Created history data structure")
+            print(f"[DEBUG] ActorPromptOptimizer: History data keys: {list(history_data.keys())}")
+            
+            # Try to serialize to JSON first to catch any serialization issues
+            try:
+                json_str = json.dumps(history_data, indent=2, ensure_ascii=False)
+                print(f"[DEBUG] ActorPromptOptimizer: JSON serialization successful, length: {len(json_str)}")
+            except Exception as json_e:
+                print(f"[DEBUG] ActorPromptOptimizer: JSON serialization failed: {json_e}")
+                return
+            
             with open(history_file, 'w', encoding='utf-8') as f:
                 json.dump(history_data, f, indent=2, ensure_ascii=False)
             
-            print(f"[DEBUG] ActorPromptOptimizer: Saved optimization history to {history_file}")
+            print(f"[DEBUG] ActorPromptOptimizer: Successfully saved optimization history to {history_file}")
+            
+            # Verify the file was created and has content
+            if history_file.exists():
+                file_size = history_file.stat().st_size
+                print(f"[DEBUG] ActorPromptOptimizer: File created successfully, size: {file_size} bytes")
+            else:
+                print(f"[DEBUG] ActorPromptOptimizer: ERROR - File was not created!")
             
         except Exception as e:
             print(f"[DEBUG] ActorPromptOptimizer: Error saving optimization history: {e}")
+            import traceback
+            print(f"[DEBUG] ActorPromptOptimizer: Full traceback: {traceback.format_exc()}")
     
     def get_optimization_status(self) -> Dict[str, Any]:
         """Get status of optimization system"""
@@ -646,4 +753,11 @@ class SafePromptUpdater:
                 print(f"[DEBUG] SafePromptUpdater: Unknown prompt type: {prompt_type}")
         
         # Save the updated prompts
-        self.prompt_manager._save_prompt_history(step)
+        print(f"[DEBUG] SafePromptUpdater: About to save prompt history for step {step}")
+        try:
+            self.prompt_manager._save_prompt_history(step)
+            print(f"[DEBUG] SafePromptUpdater: Successfully saved prompt history")
+        except Exception as e:
+            print(f"[DEBUG] SafePromptUpdater: Error saving prompt history: {e}")
+            import traceback
+            print(f"[DEBUG] SafePromptUpdater: Full traceback: {traceback.format_exc()}")

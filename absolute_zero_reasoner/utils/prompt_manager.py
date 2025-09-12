@@ -461,21 +461,52 @@ Your answer should demonstrate that the question is indeed solvable by providing
     
     def _save_prompt_history(self, step: int):
         """Save prompt history to disk"""
+        print(f"[DEBUG] PromptManager: Starting to save prompt history for step {step}")
+        print(f"[DEBUG] PromptManager: Output directory: {self.output_dir}")
+        print(f"[DEBUG] PromptManager: Directory exists: {self.output_dir.exists()}")
+        
         try:
+            # Ensure output directory exists
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[DEBUG] PromptManager: Ensured output directory exists")
+            
             history_file = self.output_dir / f"prompt_history_step_{step}.json"
+            print(f"[DEBUG] PromptManager: Target file path: {history_file}")
             
             # Convert templates to serializable format
             serializable_templates = {}
             for name, template in self.templates.items():
-                serializable_templates[name] = asdict(template)
+                try:
+                    serializable_templates[name] = asdict(template)
+                    print(f"[DEBUG] PromptManager: Serialized template: {name}")
+                except Exception as template_e:
+                    print(f"[DEBUG] PromptManager: Error serializing template {name}: {template_e}")
+                    # Use manual serialization as fallback
+                    serializable_templates[name] = {
+                        'base_template': template.base_template,
+                        'improvements': template.improvements,
+                        'last_updated': template.last_updated,
+                        'performance_context': template.performance_context
+                    }
+            
+            print(f"[DEBUG] PromptManager: Created serializable templates for {len(serializable_templates)} templates")
             
             with open(history_file, 'w', encoding='utf-8') as f:
                 json.dump(serializable_templates, f, indent=2, ensure_ascii=False)
             
-            print(f"[DEBUG] PromptManager: Saved prompt history to {history_file}")
+            print(f"[DEBUG] PromptManager: Successfully saved prompt history to {history_file}")
+            
+            # Verify the file was created and has content
+            if history_file.exists():
+                file_size = history_file.stat().st_size
+                print(f"[DEBUG] PromptManager: File created successfully, size: {file_size} bytes")
+            else:
+                print(f"[DEBUG] PromptManager: ERROR - File was not created!")
             
         except Exception as e:
             print(f"[DEBUG] PromptManager: Error saving prompt history: {e}")
+            import traceback
+            print(f"[DEBUG] PromptManager: Full traceback: {traceback.format_exc()}")
     
     def _load_prompt_history(self):
         """Load the most recent prompt history"""
