@@ -270,7 +270,11 @@ class ActorPromptOptimizer:
                 print(f"[DEBUG] ActorPromptOptimizer: Error optimizing {prompt_type}: {e}")
         
         # Save optimization history
+        print(f"[DEBUG] ActorPromptOptimizer: About to save optimization history")
+        print(f"[DEBUG] ActorPromptOptimizer: Optimized prompts to save: {list(optimized_prompts.keys())}")
+        print(f"[DEBUG] ActorPromptOptimizer: Benchmark analysis length: {len(benchmark_analysis)}")
         self._save_optimization_history(optimized_prompts, benchmark_analysis, step)
+        print(f"[DEBUG] ActorPromptOptimizer: Completed optimization history save attempt")
         
         return optimized_prompts
     
@@ -632,8 +636,29 @@ Also explain your changes within <explanation> tags:
                                   benchmark_analysis: str, step: int):
         """Save optimization history to disk"""
         
+        print(f"[DEBUG] ActorPromptOptimizer: Starting to save optimization history for step {step}")
+        print(f"[DEBUG] ActorPromptOptimizer: Output directory: {self.output_dir}")
+        print(f"[DEBUG] ActorPromptOptimizer: Directory exists: {self.output_dir.exists()}")
+        print(f"[DEBUG] ActorPromptOptimizer: Number of optimized prompts: {len(optimized_prompts)}")
+        
         try:
+            # Ensure output directory exists
+            self.output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"[DEBUG] ActorPromptOptimizer: Ensured output directory exists")
+            
             history_file = self.output_dir / f"optimization_history_step_{step}.json"
+            print(f"[DEBUG] ActorPromptOptimizer: Target file path: {history_file}")
+            
+            # Check if we have write permissions
+            try:
+                test_file = self.output_dir / "test_write.tmp"
+                with open(test_file, 'w') as f:
+                    f.write("test")
+                test_file.unlink()  # Delete test file
+                print(f"[DEBUG] ActorPromptOptimizer: Write permissions verified")
+            except Exception as perm_e:
+                print(f"[DEBUG] ActorPromptOptimizer: Write permission test failed: {perm_e}")
+                return
             
             history_data = {
                 'step': step,
@@ -644,13 +669,33 @@ Also explain your changes within <explanation> tags:
                                         for r in v] for k, v in self.protected_regions.items()}
             }
             
+            print(f"[DEBUG] ActorPromptOptimizer: Created history data structure")
+            print(f"[DEBUG] ActorPromptOptimizer: History data keys: {list(history_data.keys())}")
+            
+            # Try to serialize to JSON first to catch any serialization issues
+            try:
+                json_str = json.dumps(history_data, indent=2, ensure_ascii=False)
+                print(f"[DEBUG] ActorPromptOptimizer: JSON serialization successful, length: {len(json_str)}")
+            except Exception as json_e:
+                print(f"[DEBUG] ActorPromptOptimizer: JSON serialization failed: {json_e}")
+                return
+            
             with open(history_file, 'w', encoding='utf-8') as f:
                 json.dump(history_data, f, indent=2, ensure_ascii=False)
             
-            print(f"[DEBUG] ActorPromptOptimizer: Saved optimization history to {history_file}")
+            print(f"[DEBUG] ActorPromptOptimizer: Successfully saved optimization history to {history_file}")
+            
+            # Verify the file was created and has content
+            if history_file.exists():
+                file_size = history_file.stat().st_size
+                print(f"[DEBUG] ActorPromptOptimizer: File created successfully, size: {file_size} bytes")
+            else:
+                print(f"[DEBUG] ActorPromptOptimizer: ERROR - File was not created!")
             
         except Exception as e:
             print(f"[DEBUG] ActorPromptOptimizer: Error saving optimization history: {e}")
+            import traceback
+            print(f"[DEBUG] ActorPromptOptimizer: Full traceback: {traceback.format_exc()}")
     
     def get_optimization_status(self) -> Dict[str, Any]:
         """Get status of optimization system"""
@@ -708,4 +753,11 @@ class SafePromptUpdater:
                 print(f"[DEBUG] SafePromptUpdater: Unknown prompt type: {prompt_type}")
         
         # Save the updated prompts
-        self.prompt_manager._save_prompt_history(step)
+        print(f"[DEBUG] SafePromptUpdater: About to save prompt history for step {step}")
+        try:
+            self.prompt_manager._save_prompt_history(step)
+            print(f"[DEBUG] SafePromptUpdater: Successfully saved prompt history")
+        except Exception as e:
+            print(f"[DEBUG] SafePromptUpdater: Error saving prompt history: {e}")
+            import traceback
+            print(f"[DEBUG] SafePromptUpdater: Full traceback: {traceback.format_exc()}")
