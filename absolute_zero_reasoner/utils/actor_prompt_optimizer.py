@@ -394,7 +394,7 @@ Also explain your changes within <explanation> tags:
                 response = self.model_interface(optimization_prompt)
                 
             print(f"[DEBUG] ActorPromptOptimizer: Received response of length {len(response)}")
-            PrettyPrinter.print(response)
+            print(f"[DEBUG] ActorPromptOptimizer: Response content: {response}")  
             return response
             
         except Exception as e:
