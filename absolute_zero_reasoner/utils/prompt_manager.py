@@ -125,7 +125,7 @@ After providing the answer, think: Is this question clear, solvable, and appropr
 
 Continue this process until you have a well-formed, solvable question. The final output should contain your best question-answer pair.
 
-EXTRACTION RULE: Only the content within the LAST <question></question> tags will be extracted and used.
+MAKE SURE THAT YOUR FINAL QUESTION IS INSIDE A <question></question> TAG! THE LAST QUESTION OF THIS PATTERN WILL BE EXTRACTED AS YOUR FINAL QUESTION!
 
 Make sure your final question is:
 - Clear and unambiguous
