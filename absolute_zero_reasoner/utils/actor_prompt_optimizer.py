@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from absolute_zero_reasoner.utils.prompt_manager import PromptManager
-import absolute_zero_reasoner.utils.pretty_printer as PrettyPrinter
+from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
 
 @dataclass 
 class ProtectedRegion:
