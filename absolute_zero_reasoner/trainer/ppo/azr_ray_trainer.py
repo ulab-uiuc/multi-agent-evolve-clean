@@ -760,29 +760,31 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     tokenizer = self.trainer.tokenizer
                     inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True, max_length=1024)
                     
-                    # Get tensor model parallel size to ensure proper batching
-                    tensor_parallel_size = getattr(self.trainer.config.actor_rollout_ref.rollout, 'tensor_model_parallel_size', 1)
+                    # Use actor rollout world size to ensure DataProto can be chunked evenly
+                    world_size = getattr(self.trainer.actor_rollout_wg, 'world_size', 1)
                     
-                    # Duplicate the input to match tensor parallel size for proper chunking
-                    # This ensures DataProto.chunk() can divide evenly
+                    # Build a single-sample batch, we'll pad to divisor below
                     batch_dict = {
-                        'input_ids': inputs['input_ids'].repeat(tensor_parallel_size, 1),
-                        'attention_mask': inputs['attention_mask'].repeat(tensor_parallel_size, 1),
-                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0).repeat(tensor_parallel_size, 1)
+                        'input_ids': inputs['input_ids'],
+                        'attention_mask': inputs['attention_mask'],
+                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0)
                     }
                     
-                    print(f"[DEBUG] ActorModelInterface: Created batch with size {batch_dict['input_ids'].shape[0]} for {tensor_parallel_size} tensor parallel workers")
-                    
-                    # Convert to DataProto
+                    # Convert to DataProto and pad to world_size divisor
                     gen_batch = DataProto.from_single_dict(batch_dict)
+                    gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, world_size)
+                    print(f"[DEBUG] ActorModelInterface: Padded batch for world_size={world_size}, pad_size={pad_size}")
                     
                     # Generate using actor_rollout_wg
                     with torch.no_grad():
-                        gen_output = self.trainer.actor_rollout_wg.generate_sequences(gen_batch)
+                        gen_output_padded = self.trainer.actor_rollout_wg.generate_sequences(gen_batch_padded)
                     
-                    # Extract generated text (take the first result since all inputs are identical)
+                    # Unpad back to original size
+                    gen_output = unpad_dataproto(gen_output_padded, pad_size=pad_size)
+                    
+                    # Extract generated text (take the first result)
                     if 'responses' in gen_output.batch:
-                        response_ids = gen_output.batch['responses'][0]  # Take first response
+                        response_ids = gen_output.batch['responses'][0]
                         response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
                         return response_text.strip()
                     else:
