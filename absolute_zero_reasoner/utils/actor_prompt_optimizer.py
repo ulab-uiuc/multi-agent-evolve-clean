@@ -568,7 +568,7 @@ Also explain your changes within <explanation> tags:
             print(f"[DEBUG] ActorPromptOptimizer: New template variables detected: {new_vars}")
             
             # Allow only very specific new variables that are safe
-            allowed_new_vars = {}
+            allowed_new_vars: set[str] = set()
             
             unauthorized_vars = new_vars - allowed_new_vars
             if unauthorized_vars:
