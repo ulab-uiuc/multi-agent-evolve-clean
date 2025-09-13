@@ -84,6 +84,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.io_n=1 \
     trainer.resume_mode=disable \
     trainer.total_epochs=30 \
+    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/classic.json \
     azr.enable_actor_prompt_optimization=true \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \
