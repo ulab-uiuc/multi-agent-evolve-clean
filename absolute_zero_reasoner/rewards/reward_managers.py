@@ -1209,16 +1209,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
         avg_pred_scores = []
 
         if problem_type.startswith("judge"):
-            try:
-                # Implement repetition penalty reward for judge tasks
-                ngram_size = 3  # Default n-gram size
-                max_penalty = -0.5  # Default max penalty
-                
-                def zipngram(text: str, ngram_size: int):
-                    """Split text into n-grams for repetition detection."""
-                    words = text.lower().split()
-                    return zip(*[words[i:] for i in range(ngram_size)]), words
-                
+            try:           
                 def count_score_tags(text: str) -> tuple:
                     """Count <score> and </score> tags in the text."""
                     score_open_count = text.count('<score>')
@@ -1234,27 +1225,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     if response_text == "":
                         judge_scores.append(0.5)  # Neutral score for empty responses
                         continue
-                    
-                    # 1. Calculate repetition penalty reward
-                    ngrams = set()
-                    total = 0
-                    ngram_array, words = zipngram(response_text, ngram_size)
-                    
-                    if len(words) < ngram_size:
-                        repetition_score = 0.5  # Neutral score for very short responses
-                    else:
-                        for ng in ngram_array:
-                            ngrams.add(ng)
-                            total += 1
                         
-                        # Calculate repetition score (less repetition = higher score)
-                        if total > 0:
-                            uniqueness_ratio = len(ngrams) / total
-                            repetition_score = uniqueness_ratio  # Higher uniqueness = higher score
-                        else:
-                            repetition_score = 0.5
-                    
-                    # 2. Calculate tag reward
                     open_tags, close_tags = count_score_tags(response_text)
                     
                     # Perfect score if exactly one <score> and one </score> tag
@@ -1268,11 +1239,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     else:
                         tag_score = 0.0
                     
-                    repetition_weight = 0.0
-                    tag_weight = 1.0
-                    combined_score = (repetition_weight * repetition_score) + (tag_weight * tag_score)
-                    
-                    judge_scores.append(combined_score)
+                    judge_scores.append(tag_score)
                 
                 avg_gen_scores = judge_scores
                 avg_pred_scores = []  # No pred scores for judge tasks
@@ -1853,36 +1820,29 @@ When you reference your own scores, you do not use the <score> and </score> tags
             for i, data_dict in enumerate(data_dicts):
                 valid_response_length = data_dict['valid_response_length']
                 
-                def calc_difficulty_score(solver_avg_score):
-                    # Compute difficulty score
-                    # More difficulty is not better
-                    # Probably no use, LLM give high score for any solver
-                    if solver_avg_score > 0.2:
-                        return 1 - solver_avg_score
-                    else:
-                        return solver_avg_score * 4
-
-                difficulty_score = 1 - solver_avg_scores[i]
-                # difficulty_score = calc_difficulty_score(solver_avg_scores[i])
-                final_score = 0.5 * llm_scores[i] + 0.5 * difficulty_score
-                
-                print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, final={final_score:.4f}")
-                
-                reward_tensor[i, valid_response_length - 1] = final_score
-                all_scores['llm_judge_score'].append(llm_scores[i])
-                all_scores['difficulty_score'].append(difficulty_score)
-                all_scores['combined_score'].append(final_score)
                 def extract_question(text):
                     pattern = r'<question>(.*?)</question>'
                     matches = re.findall(pattern, text, re.DOTALL)
-                    return matches
-                question = extract_question(data_dict.get('generation', '<question></question>').split("[Your designed task]")[-1])
-                if question != []:
+                    return [m.strip() for m in matches]
+                question = extract_question(data_dict.get('generation', '<question></question>'))
+                if len(question) > 3:
+                    # The exact number depends on the prompt given
                     question = question[-1]
                 else:
                     question = None
-                # For gen tasks, add to valid_questions
-                if question!=None:
+                # First check validity and then add
+                # If validity check not passed, all should be reset
+
+                if question:
+                    difficulty_score = 1 - solver_avg_scores[i]
+                    final_score = 0.5 * llm_scores[i] + 0.5 * difficulty_score
+                    
+                    print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, final={final_score:.4f}")
+                    
+                    reward_tensor[i, valid_response_length - 1] = final_score
+                    all_scores['llm_judge_score'].append(llm_scores[i])
+                    all_scores['difficulty_score'].append(difficulty_score)
+                    all_scores['combined_score'].append(final_score)
                     valid_data.append({
                         'question': question,
                         'generation': data_dict.get('generation', ''),
@@ -1891,15 +1851,13 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         'uid': data_dict['uid'],
                     })
                 else:
-                    PrettyPrinter.section_header(f"Processing Question {i+1}/{len(data_dicts)}")
-                    PrettyPrinter.status(f"Question: {data_dict.get('question', '')}", "", "info")
-                    PrettyPrinter.status(f"Generation: {data_dict.get('generation', '')}", "", "info")
-                    PrettyPrinter.status(f"Thought: {data_dict.get('thought', '')}", "", "info")
-                    PrettyPrinter.status(f"LLM Judge Score: {llm_scores[i]:.4f}", f"Difficulty Score: {difficulty_score:.4f}", "info")
-                    PrettyPrinter.status(f"Combined Score: {final_score:.4f}", "", "info")
-                    print("\n" + "-"*80 + "\n")
+                    print("Question format failed. Penalized and falling back")
+                    reward_tensor[i, valid_response_length - 1] = 0.0
+                    all_scores['llm_judge_score'].append(0.0)
+                    all_scores['difficulty_score'].append(0.0)
+                    all_scores['combined_score'].append(0.0)
+
             all_scores['solver_avg_scores'] = solver_avg_scores
-            
         elif problem_type.startswith('pred'):
             PrettyPrinter.section_header("Computing Prediction Rewards for GeneralIO Tasks")
             
