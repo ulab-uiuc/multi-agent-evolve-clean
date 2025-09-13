@@ -384,3 +384,10 @@ Problem type: general, Dataset size: 16
 Problem type: general, Dataset size: 15
 Problem type: general, Dataset size: 16
 Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16
+Problem type: general, Dataset size: 16

@@ -46,7 +46,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_evolveprompt_trainjudge_extract' \
+    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_evolveprompt_trainjudge_rejectbadquestion' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \

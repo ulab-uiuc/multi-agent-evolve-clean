@@ -1371,13 +1371,28 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         rollout_actor_wg=rollout_actor_wg
                     )
 
+                    # Create uid to prompt mapping for dumping
+                    uid_to_prompt = {}
+                    for ep in eval_prompts:
+                        uid_to_prompt[ep['uid']] = ep['prompt'][0]['content']
+
                     # Collect raw judge outputs
                     uid2_q_scores = defaultdict(list)
 
+                    # Open file for dumping evaluation results
+                    eval_file = open("eval.txt", "a")
                     for jb in judge_batch:
                         uid = jb.non_tensor_batch['uid']
                         text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
                         scores = self.extract_score_from_tags(text)
+                        
+                        # Dump prompt and evaluation response to file separated by ===
+                        eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
+                        eval_file.write("\n==================\n")
+                        eval_file.write(text)
+                        eval_file.write("\n==================\n\n")
+                        eval_file.flush()
+                        
                         print("Actor evaluation response:", text)
                         try:
                             # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
@@ -1386,6 +1401,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         except:
                             print("Falling back to neutral scores.")
                             pass
+
+                    # Close evaluation file
+                    eval_file.close()
 
                     # Aggregate per original data_dict
                     for data_dict in data_dicts:
@@ -1843,13 +1861,34 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     all_scores['llm_judge_score'].append(llm_scores[i])
                     all_scores['difficulty_score'].append(difficulty_score)
                     all_scores['combined_score'].append(final_score)
-                    valid_data.append({
-                        'question': question,
-                        'generation': data_dict.get('generation', ''),
-                        'thought': data_dict.get('thought', ''),
-                        'answer': data_dict.get('generation', ''),
-                        'uid': data_dict['uid'],
-                    })
+                    if llm_scores[i] > 0.3:
+                        # Only add question to dataset if it is valid
+                        # This only works when using strict prompt for evaluating questions
+                        valid_data.append({
+                            'question': question,
+                            'generation': data_dict.get('generation', ''),
+                            'thought': data_dict.get('thought', ''),
+                            'answer': data_dict.get('generation', ''),
+                            'uid': data_dict['uid'],
+                        })
+                    else:
+                        # Override scores if not valid
+                        # Dump bad question to file
+                        with open('bad_question.txt', 'a') as f:
+                            f.write(f"Question: {question}\n")
+                            f.write("==============================================\n")
+                            if 'thought' in data_dict:
+                                f.write(f"Thought: {data_dict['thought']}\n")
+                                f.write("==============================================\n")
+                            if 'generation' in data_dict:
+                                f.write(f"Generation: {data_dict['generation']}\n")
+                                f.write("==============================================\n")
+                            f.write(f"LLM Score: {llm_scores[i]}\n")
+                            f.write("==============================================\n")
+                            f.write("\n")
+                        reward_tensor[i, valid_response_length - 1] = llm_scores[i]
+                        all_scores['difficulty_score'][-1] = llm_scores[i]
+                        all_scores['combined_score'][-1] = llm_scores[i]
                 else:
                     print("Question format failed. Penalized and falling back")
                     reward_tensor[i, valid_response_length - 1] = 0.0
