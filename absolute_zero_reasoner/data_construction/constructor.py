@@ -29,7 +29,7 @@ def get_gen_general_io_data(
     split: str,
     tokenizer,  # 不强依赖类型声明，避免导入问题
     weights: List[float] = None,
-    include_references: bool = True,
+    include_references: float = 1.0,
     prompt_manager = None,  # Add prompt manager parameter
 ):
     return_io_data = []
@@ -58,6 +58,18 @@ def get_gen_general_io_data(
         else:
             probabilities = w / s
 
+    # 解析 include_references 为概率 p 
+    try:
+        if isinstance(include_references, bool):
+            p_include = 1.0 if include_references else 0.0
+        else:
+            p_include = float(include_references)
+        # clamp 到 [0,1]
+        p_include = max(0.0, min(1.0, p_include))
+    except Exception:
+        p_include = 1.0
+    print(f"[DEBUG] get_gen_general_io_data: include_references probability = {p_include}")
+
     idx = 0
     max_attempts = max(5 * target_data_len, 100)  # 防止无限循环
     attempts = 0
@@ -65,7 +77,11 @@ def get_gen_general_io_data(
     while len(return_io_data) < target_data_len and attempts < max_attempts:
         attempts += 1
 
-        if not include_references:
+
+        # 本轮是否包含参考：按概率决定
+        include_refs_this_round = (np.random.rand() < p_include)
+
+        if not include_refs_this_round:
             chosen_references = []
         else:
             k = min(io_n, len(io_data))
@@ -105,13 +121,13 @@ def get_gen_general_io_data(
 
         # 显示给actor的prompt日志
         from absolute_zero_reasoner.utils.logging_utils.stdout import PrettyPrinter
-        PrettyPrinter.section_header(f"🤖 Gen_General Proposer Prompt for Actor (Item {idx+1})")
-        PrettyPrinter.code_block(f"Prompt Content:\n{io_prompt}")
-        print(f"[GEN_GENERAL_LOG] Prompt length: {len(tokenizer(io_prompt)['input_ids'])} tokens")
-        print(f"[GEN_GENERAL_LOG] Using prompt_manager: {prompt_manager is not None}")
-        if prompt_manager:
-            print(f"[GEN_GENERAL_LOG] Enhanced proposer instruction with question-answer verification enabled")
-        
+        # PrettyPrinter.section_header(f"🤖 Gen_General Proposer Prompt for Actor (Item {idx+1})")
+        # PrettyPrinter.code_block(f"Prompt Content:\n{io_prompt}")
+        # print(f"[GEN_GENERAL_LOG] Prompt length: {len(tokenizer(io_prompt)['input_ids'])} tokens")
+        # print(f"[GEN_GENERAL_LOG] Using prompt_manager: {prompt_manager is not None}")
+        # if prompt_manager:
+        #     print(f"[GEN_GENERAL_LOG] Enhanced proposer instruction with question-answer verification enabled")
+
         # 过滤过长样本
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             io_item = {
@@ -170,7 +186,9 @@ def get_pred_general_io_data(
                     question=io_item['question'],
                 )
             )
-        print(f"Generated prompt: {io_prompt}")
+
+        # print(f"Generated prompt: {io_prompt}")
+
         # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             output_io_item = {
@@ -226,7 +244,6 @@ def get_judge_general_io_data(
                 prompt_manager=prompt_manager,
             )
         )
-        print(f"Generated prompt: {io_prompt}")
         # since we have abundant judge data, we can afford to filter out some data
         if len(tokenizer(io_prompt)['input_ids']) <= content_max_length:
             output_io_item = {
@@ -261,6 +278,7 @@ def get_judge_general_io_data(
     # output to parquet
     df = pd.DataFrame(return_io_data)
     df.to_parquet(output_path)
+
 
 def get_gen_code_io_data(
     io_data: List[Dict],

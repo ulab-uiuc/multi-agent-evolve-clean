@@ -760,29 +760,31 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     tokenizer = self.trainer.tokenizer
                     inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True, max_length=1024)
                     
-                    # Get tensor model parallel size to ensure proper batching
-                    tensor_parallel_size = getattr(self.trainer.config.actor_rollout_ref.rollout, 'tensor_model_parallel_size', 1)
+                    # Use actor rollout world size to ensure DataProto can be chunked evenly
+                    world_size = getattr(self.trainer.actor_rollout_wg, 'world_size', 1)
                     
-                    # Duplicate the input to match tensor parallel size for proper chunking
-                    # This ensures DataProto.chunk() can divide evenly
+                    # Build a single-sample batch, we'll pad to divisor below
                     batch_dict = {
-                        'input_ids': inputs['input_ids'].repeat(tensor_parallel_size, 1),
-                        'attention_mask': inputs['attention_mask'].repeat(tensor_parallel_size, 1),
-                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0).repeat(tensor_parallel_size, 1)
+                        'input_ids': inputs['input_ids'],
+                        'attention_mask': inputs['attention_mask'],
+                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0)
                     }
                     
-                    print(f"[DEBUG] ActorModelInterface: Created batch with size {batch_dict['input_ids'].shape[0]} for {tensor_parallel_size} tensor parallel workers")
-                    
-                    # Convert to DataProto
+                    # Convert to DataProto and pad to world_size divisor
                     gen_batch = DataProto.from_single_dict(batch_dict)
+                    gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, world_size)
+                    print(f"[DEBUG] ActorModelInterface: Padded batch for world_size={world_size}, pad_size={pad_size}")
                     
                     # Generate using actor_rollout_wg
                     with torch.no_grad():
-                        gen_output = self.trainer.actor_rollout_wg.generate_sequences(gen_batch)
+                        gen_output_padded = self.trainer.actor_rollout_wg.generate_sequences(gen_batch_padded)
                     
-                    # Extract generated text (take the first result since all inputs are identical)
+                    # Unpad back to original size
+                    gen_output = unpad_dataproto(gen_output_padded, pad_size=pad_size)
+                    
+                    # Extract generated text (take the first result)
                     if 'responses' in gen_output.batch:
-                        response_ids = gen_output.batch['responses'][0]  # Take first response
+                        response_ids = gen_output.batch['responses'][0]
                         response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
                         return response_text.strip()
                     else:
@@ -1051,11 +1053,15 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             if len(judge_train_dataset) == 0:
                 PrettyPrinter.status("ERROR", f"Judge dataset is completely empty for {problem_type}. Judge training will be skipped.", "error")
                 return None
-            else:
-                # Use smaller batch size and don't drop last incomplete batch
-                actual_batch_size = min(self.config.data.train_batch_size, len(judge_train_dataset))
-                drop_last = False
-                PrettyPrinter.status("WARN", f"Judge dataset size ({len(judge_train_dataset)}) is smaller than batch_size ({self.config.data.train_batch_size}). Using batch_size={actual_batch_size} and drop_last=False", "warn")
+            PrettyPrinter.status("WARN", f"Judge dataset too small to construct a complete batch. Judge training will be skipped", "error")
+            return None
+            # drop_last = False will cause problem in DataProto chunking
+            # maybe fix later
+            # else:
+            #     # Use smaller batch size and don't drop last incomplete batch
+            #     actual_batch_size = min(self.config.data.train_batch_size, len(judge_train_dataset))
+            #     drop_last = False
+            #     PrettyPrinter.status("WARN", f"Judge dataset size ({len(judge_train_dataset)}) is smaller than batch_size ({self.config.data.train_batch_size}). Using batch_size={actual_batch_size} and drop_last=False", "warn")
         
         judge_train_dataloader = DataLoader(dataset=judge_train_dataset,
                                            batch_size=actual_batch_size,
@@ -1145,15 +1151,15 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 PrettyPrinter.status("REWARD", f"Found {len(valid_data) if valid_data else 0} valid data for {problem_type}", "success")
 
             # Log new questions, for now pairs will not be logged
-            if valid_data and self.config.azr.random_print_max_programs > 0 and problem_type.startswith('gen'):
-                PrettyPrinter.section_header(f"New {problem_type} Questions")
-                max_print = min(self.config.azr.random_print_max_programs, len(valid_data))
-                for question in random.sample(valid_data, max_print):
-                    PrettyPrinter.status(f"PROBLEM TYPE", problem_type, "info")
-                    PrettyPrinter.status("QUESTION", question['question'], "info")
-                    PrettyPrinter.status("THOUGHT", question['thought'], "info")
-                    PrettyPrinter.status("GENERATION", question['generation'], "info")
-                    print("\n" + "-"*80 + "\n")
+            # if valid_data and self.config.azr.random_print_max_programs > 0 and problem_type.startswith('gen'):
+            #     PrettyPrinter.section_header(f"New {problem_type} Questions")
+            #     max_print = min(self.config.azr.random_print_max_programs, len(valid_data))
+            #     for question in random.sample(valid_data, max_print):
+            #         PrettyPrinter.status(f"PROBLEM TYPE", problem_type, "info")
+            #         PrettyPrinter.status("QUESTION", question['question'], "info")
+            #         PrettyPrinter.status("THOUGHT", question['thought'], "info")
+            #         PrettyPrinter.status("GENERATION", question['generation'], "info")
+            #         print("\n" + "-"*80 + "\n")
             
             if problem_type.startswith('gen'):
                 ray.get(self.dataset_manager.add_general_batch.remote(valid_data, self.global_steps)) if valid_data else None
@@ -1177,6 +1183,21 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                         dataset_key, self.global_steps, self._past_epoch_window
                     )
                 )
+                # Dump questions to file
+                if valid_data:
+                    with open('question2.txt', 'a') as f:
+                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                        for item in valid_data:
+                            f.write(f"Question: {item['question']}\n")
+                            f.write("==============================================\n")
+                            if 'thought' in item:
+                                f.write(f"Thought: {item['thought']}\n")
+                                f.write("==============================================\n")
+                            if 'generation' in item:
+                                f.write(f"Generation: {item['generation']}\n")
+                                f.write("==============================================\n")
+                            f.write("\n")
+                        f.write("\n")
             if problem_type.startswith('pred'):
                 if problem_type.endswith('general'):
                     dataset_key = 'general_pair'
@@ -1187,15 +1208,34 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                         dataset_key, self.global_steps, self._past_epoch_window
                     )
                 )
+                # Dump question-answer pairs to file
+                if valid_data:
+                    with open('pair2.txt', 'a') as f:
+                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                        for item in valid_data:
+                            if 'question' in item:
+                                f.write(f"Question: {item['question']}\n")
+                                f.write("==============================================\n")
+                            if 'answer' in item:
+                                f.write(f"Answer: {item['answer']}\n")
+                                f.write("==============================================\n")
+                            elif 'generation' in item:
+                                f.write(f"Answer: {item['generation']}\n")
+                                f.write("==============================================\n")
+                            f.write("\n")
+                        f.write("\n")
             metrics.update(train_metrics)
             batch.batch['token_level_scores'] = reward_tensor
 
             if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                # [TODO]: is this correct?
-                batch, kl_metrics = apply_kl_penalty(batch,
-                                                kl_ctrl=self.kl_ctrl,
-                                                kl_penalty=self.config.algorithm.kl_penalty)
-                metrics.update(kl_metrics)
+                # Only apply KL penalty if use_kl_in_reward is enabled and kl_ctrl_in_reward is available
+                if self.config.algorithm.use_kl_in_reward and hasattr(self, 'kl_ctrl_in_reward'):
+                    batch, kl_metrics = apply_kl_penalty(batch,
+                                                    kl_ctrl=self.kl_ctrl_in_reward,
+                                                    kl_penalty=self.config.algorithm.kl_penalty)
+                    metrics.update(kl_metrics)
+                else:
+                    batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
             else:
                 batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
 
@@ -1203,7 +1243,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                     adv_estimator=self.config.algorithm.adv_estimator,
                                     gamma=self.config.algorithm.gamma,
                                     lam=self.config.algorithm.lam,
-                                    num_repeat=self.config.actor_rollout_ref.rollout.n)
+                                    num_repeat=self.config.actor_rollout_ref.rollout.n,
+                                    config=self.config.algorithm)
 
         gc.collect()
         return batch, metrics
@@ -1213,7 +1254,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (with full io_item structure)")
 
         examples = []
-        examples_pair = []
+        example_pairs = []
         split = "train"  # or "seed" if you prefer
 
         # Track global index
@@ -1268,23 +1309,25 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     }
                 }
                 examples.append(io_item)
-                examples_pair.append(io_item_pair)
+                example_pairs.append(io_item_pair)
                 idx += 1
             PrettyPrinter.status("INFO", f"Loaded {len(general_samples)} FusionBench examples", "info")
         except Exception as e:
             PrettyPrinter.status("WARNING", f"Failed to load FusionBench: {str(e)}", "warn")
 
         # Shuffle and truncate
-        random.shuffle(examples)
-        random.shuffle(examples_pair)
+        ex = list(zip(examples, example_pairs))
+        random.shuffle(ex)
+        examples, example_pairs = zip(*ex)
         seed_examples = examples[:1000]
+        seed_example_pairs = example_pairs[:1000]
 
         # Upload to ray
         ray.get(self.dataset_manager.add_general_batch.remote(seed_examples, self.global_steps))
         PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(seed_examples)} examples", "success")
 
-        ray.get(self.dataset_manager.add_general_pair_batch.remote(examples_pair, self.global_steps))
-        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(examples_pair)} examples pairs", "success")
+        ray.get(self.dataset_manager.add_general_pair_batch.remote(seed_example_pairs, self.global_steps))
+        PrettyPrinter.status("SEED INIT", f"Successfully initialized with {len(seed_example_pairs)} examples pairs", "success")
 
     def fit(self):
         """

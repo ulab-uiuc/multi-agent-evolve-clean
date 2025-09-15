@@ -586,7 +586,9 @@ class BenchmarkTracker:
             prompt_parts.append("- **Positive Trend**: Current approach is working well, consider reinforcing successful patterns")
         
         final_prompt = "\n".join(prompt_parts)
+        print("-"*60)
         print(f"[DEBUG] generate_improvement_prompt: Generated prompt length={len(final_prompt)}")
+        print(final_prompt)
         return final_prompt
     
     def get_question_details(self, question_ids: List[str]) -> List[Dict]:
