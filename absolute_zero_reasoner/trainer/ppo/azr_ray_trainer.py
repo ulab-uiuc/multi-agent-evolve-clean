@@ -1185,7 +1185,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump questions to file
                 if valid_data:
-                    with open('question.txt', 'a') as f:
+                    with open('question2.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             f.write(f"Question: {item['question']}\n")
@@ -1210,7 +1210,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump question-answer pairs to file
                 if valid_data:
-                    with open('pair.txt', 'a') as f:
+                    with open('pair2.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             if 'question' in item:

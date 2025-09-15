@@ -89,6 +89,10 @@ class TaskRunner:
         
         # Set checkpoint directory
         config.trainer.default_local_dir = f"./checkpoints/general/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
+        if hasattr(config, 'trainer') and hasattr(config.trainer, 'resume_path'):
+            if hasattr(config, 'trainer') and hasattr(config.trainer, 'resume_mode') and config.trainer.resume_mode == "auto":
+                print("[DEBUG]: using resume_path to set default local directory!")
+                config.trainer.default_local_dir = config.trainer.resume_path
         
         # Set output directories for prompt optimization and benchmark tracking
         if hasattr(config, 'azr') and hasattr(config.azr, 'prompt_optimization'):

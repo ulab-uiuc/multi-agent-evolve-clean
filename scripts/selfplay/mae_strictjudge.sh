@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="1,2,3,4"
+export CUDA_VISIBLE_DEVICES="5,6,7,8"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -46,7 +46,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_evolveprompt_trainjudge_rejectbadquestion' \
+    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
@@ -82,10 +82,11 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=disable \
+    trainer.resume_mode=auto \
+    +trainer.resume_path=./checkpoints/general/2025-09-14/03-03-20_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
-    azr.enable_actor_prompt_optimization=true \
+    azr.enable_actor_prompt_optimization=false \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \
     azr.prompt_optimization.max_improvements_per_step=3 \
