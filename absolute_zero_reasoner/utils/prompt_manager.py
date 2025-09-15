@@ -26,9 +26,10 @@ class PromptTemplate:
             return self.base_template
         
         # Combine base template with improvements
-        improvement_text = "\n".join([f"- {imp}" for imp in self.improvements])
-        enhanced_template = f"{self.base_template}\n\nAdditional Instructions:\n{improvement_text}"
-        return enhanced_template
+        # improvement_text = "\n".join([f"- {imp}" for imp in self.improvements])
+        # enhanced_template = f"{self.base_template}\n\nAdditional Instructions:\n{improvement_text}"
+        # return enhanced_template
+        return self.base_template
 
 
 class PromptManager:

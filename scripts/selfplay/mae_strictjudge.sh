@@ -74,7 +74,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.train_propose=True \
     azr.reward.n_samples=3 \
     azr.reward.generation_reward_config.format_reward=false \
-    azr.reward.generation_reward_config.include_references=true \
+    azr.reward.generation_reward_config.include_references=0.5 \
     azr.reward.generation_reward_config.generation_accuracy_convertion=inverse \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=false \
     azr.data_selection_strategy.content_max_length=8096 \
