@@ -107,7 +107,7 @@ def get_gen_general_io_data(
                 # Extract the reference questions part from the reference_section
                 if "### Reference Questions:" in reference_section:
                     ref_part = reference_section.split("### Reference Questions:")[1]
-                    io_prompt = base_instruction + "\n### Reference Questions:" + ref_part
+                    io_prompt = base_instruction + "\n### Reference Questions:" + ref_part + "\n### Reference Questions Ends Here"
                 else:
                     io_prompt = base_instruction
             else:
