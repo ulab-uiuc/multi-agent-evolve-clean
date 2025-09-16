@@ -1229,10 +1229,11 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     open_tags, close_tags = count_score_tags(response_text)
                     
                     # Perfect score if exactly one <score> and one </score> tag
-                    if open_tags == 1 and close_tags == 1:
+                    # Generation has tags for itself already
+                    if open_tags == 2 and close_tags == 2:
                         tag_score = 1.0
                     elif open_tags == close_tags:
-                        if  open_tags >= 2:
+                        if open_tags >= 3:
                             tag_score = 0.5
                         else:
                             tag_score = 0.0
@@ -1293,7 +1294,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 uid2_a_scores = defaultdict(list)
                 
                 # Open file for dumping evaluation results
-                eval_file = open("eval2.txt", "a")
+                eval_file = open("eval.txt", "a")
 
                 for jb in judge_batch:
                     uid = jb.non_tensor_batch['uid']
@@ -1380,7 +1381,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     uid2_q_scores = defaultdict(list)
 
                     # Open file for dumping evaluation results
-                    eval_file = open("eval2.txt", "a")
+                    eval_file = open("eval.txt", "a")
                     for jb in judge_batch:
                         uid = jb.non_tensor_batch['uid']
                         text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
@@ -1843,7 +1844,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     matches = re.findall(pattern, text, re.DOTALL)
                     return [m.strip() for m in matches]
                 question = extract_question(data_dict.get('generation', '<question></question>'))
-                if len(question) > 3:
+                if question and question[-1] != "[Your Modified Task]":
                     # The exact number depends on the prompt given
                     question = question[-1]
                 else:

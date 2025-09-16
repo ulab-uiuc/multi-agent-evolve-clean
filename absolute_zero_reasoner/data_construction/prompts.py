@@ -39,22 +39,6 @@ You must preserve the **core domain or reasoning type** of the reference (e.g., 
 
 ---
 
-### Output Format:
-
-- `<think>`: Describe your reasoning for how you modified the reference, what reasoning it tests, and why it’s harder.
-- `<question>`: The final new task to present to the test subject.
-
-### Output Template:
-
-```<think>
-[Explain modifications from the reference and why they increase difficulty — e.g., added constraints, distractors, multi-step dependencies.]
-</think>
-
-<question>
-[Write the modified, more challenging task in full, ready to present. Ensure it is solvable without external info.]
-</question>
-
-### Reference Questions:
 """
 
 general_generation_prompt = """
@@ -115,10 +99,6 @@ You will be given a cognitive, creative, logical、mathematical、or planning-re
 - For generation tasks: respects the given constraints (style, length, content)
 - For math/logic/planning: includes a final answer that could be evaluated
 - For creative tasks: coherent, original, and well-scaffolded
-
-"""
-
-general_judge_question_answer_prompt = """
 
 """
 
@@ -485,7 +465,8 @@ def get_general_generation_with_reference_prompt(
             ground_truth = "N/A"
         reference_questions_string += f"<question>\n{question['question']}\n</question>\n\n Ground Truth Answer: {ground_truth}\n\n"
 
-    return general_generation_based_on_reference_prompt + reference_questions_string + "\n### Your Task:\nCreate a Challenging and Modified Version of the Reference Task. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your modified task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
+    return general_generation_based_on_reference_prompt + "\n### Reference Questions:\n" + reference_questions_string
+# "\n### Your Task:\nCreate a Challenging and Modified Version of the Reference Task. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your modified task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
 def get_general_generator_prompt(
         reference_questions: List[Dict[str, str]],
 ) -> str:
@@ -494,7 +475,8 @@ def get_general_generator_prompt(
     for i, question in enumerate(reference_questions):
         reference_questions_string += f"<question>\n{question['question']}\n</question>\n"
 
-    return general_generation_prompt + reference_questions_string + "\n### Your Task:\nDesign a new and unique task that meets the requirements outlined above. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your designed task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
+    return general_generation_prompt + "\n### Reference Questions:\n" + reference_questions_string
+# "\n### Your Task:\nDesign a new and unique task that meets the requirements outlined above. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your designed task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
 
 def get_general_predictor_prompt(
         question: str,

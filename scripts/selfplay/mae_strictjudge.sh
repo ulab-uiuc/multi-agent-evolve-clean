@@ -50,10 +50,10 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
-    trainer.remove_previous_ckpt_in_save=True \
+    trainer.remove_previous_ckpt_in_save=False \
     trainer.del_local_ckpt_after_load=True \
     trainer.test_freq=25 \
-    +trainer.val_before_train=true \
+    +trainer.val_before_train=false \
     reward_fn.extraction_type=boxed \
     reward_fn.math_metric=deepscaler \
     reward_fn.llm_model_name="nvidia/llama-3.1-nemotron-70b-instruct" \
@@ -74,7 +74,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.train_propose=True \
     azr.reward.n_samples=3 \
     azr.reward.generation_reward_config.format_reward=false \
-    azr.reward.generation_reward_config.include_references=0.5 \
+    azr.reward.generation_reward_config.include_references=1 \
     azr.reward.generation_reward_config.generation_accuracy_convertion=inverse \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=false \
     azr.data_selection_strategy.content_max_length=8096 \
@@ -82,7 +82,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=auto \
+    trainer.resume_mode=disable \
     +trainer.resume_path=./checkpoints/general/2025-09-14/03-03-20_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \

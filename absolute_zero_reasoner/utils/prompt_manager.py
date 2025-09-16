@@ -96,11 +96,18 @@ class PromptManager:
         )
         
         # Proposer prompt template (based on generation prompts)
-        templates['proposer'] = PromptTemplate(
+        templates['proposer_no_ref'] = PromptTemplate(
             base_template=self._get_enhanced_proposer_prompt(general_generation_prompt),
             improvements=[],
             last_updated=datetime.now().isoformat(),
-            performance_context="Enhanced template with question-answer verification"
+            performance_context="Enhanced template with no reference with question-answer verification"
+        )
+
+        templates['proposer_with_ref'] = PromptTemplate(
+            base_template=self._get_enhanced_proposer_prompt(general_generation_based_on_reference_prompt),
+            improvements=[],
+            last_updated=datetime.now().isoformat(),
+            performance_context="Enhanced template with reference with question-answer verification"
         )
         
         # Judge prompt templates (from reward_managers.py - different types for scoring)
@@ -150,15 +157,15 @@ After providing the answer, think: Is this question clear, solvable, and appropr
 
 Continue this process until you have a well-formed, solvable question. The final output should contain your best question-answer pair.
 
-MAKE SURE THAT YOUR FINAL QUESTION IS INSIDE A <question></question> TAG! THE LAST QUESTION OF THIS PATTERN WILL BE EXTRACTED AS YOUR FINAL QUESTION!
-
 Make sure your final question is:
 - Clear and unambiguous
 - Solvable with the information provided
 - Appropriately challenging for the domain
 - Complete (not missing any necessary information)
 
-Your answer should demonstrate that the question is indeed solvable by providing a complete solution."""
+Your answer should demonstrate that the question is indeed solvable by providing a complete solution.
+
+MAKE SURE THAT YOUR FINAL QUESTION IS INSIDE A <question></question> TAG! THE LAST TEXT OF THIS PATTERN WILL BE EXTRACTED AS YOUR FINAL QUESTION! DO NOT USE THESE TAGS ELSEWHERE IN YOUR RESPONSE!"""
         return enhanced_prompt
     
     def _get_judge_template(self, prompt_type: str) -> str:
@@ -480,9 +487,12 @@ Your answer should demonstrate that the question is indeed solvable by providing
         
         return self.get_template(template_name)
     
-    def get_proposer_instruction(self) -> str:
+    def get_proposer_instruction(self, ref: bool) -> str:
         """Get proposer instruction for question generation"""
-        return self.get_template('proposer')
+        if ref:
+            return self.get_template('proposer_with_ref')
+        else:
+            return self.get_template('proposer_no_ref')
     
     def _save_prompt_history(self, step: int):
         """Save prompt history to disk"""

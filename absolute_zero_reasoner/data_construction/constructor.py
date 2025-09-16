@@ -33,14 +33,6 @@ def get_gen_general_io_data(
     prompt_manager = None,  # Add prompt manager parameter
 ):
     return_io_data = []
-    
-    # Use dynamic prompt if prompt_manager is available
-    if prompt_manager:
-        instruction_template = prompt_manager.get_proposer_instruction()
-        print(f"[DEBUG] get_gen_general_io_data: Using dynamic proposer instruction")
-    else:
-        instruction_template = '{}'
-        print(f"[DEBUG] get_gen_general_io_data: Using default instruction template")
 
     # 兜底：空数据直接写空表并返回
     if not io_data:
@@ -79,6 +71,17 @@ def get_gen_general_io_data(
 
         # 本轮是否包含参考：按概率决定
         include_refs_this_round = (np.random.rand() < p_include)
+
+            # Use dynamic prompt if prompt_manager is available
+        if prompt_manager:
+            if include_refs_this_round:
+                instruction_template = prompt_manager.get_proposer_instruction(ref=True)
+            else:
+                instruction_template = prompt_manager.get_proposer_instruction(ref=False)
+            print(f"[DEBUG] get_gen_general_io_data: Using dynamic proposer instruction")
+        else:
+            instruction_template = '{}'
+            print(f"[DEBUG] get_gen_general_io_data: Using default instruction template")
 
         if not include_refs_this_round:
             chosen_references = []
