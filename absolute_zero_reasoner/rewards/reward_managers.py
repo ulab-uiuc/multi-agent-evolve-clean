@@ -2128,7 +2128,7 @@ class BenchmarkEvaluationRewardManager:
         max_tokens: int = 500,
         top_p: float = 0.95,
         stream: bool = False,
-        max_workers: int = 10,  # Number of parallel processes
+        max_workers: int = 25,  # Number of parallel processes
         **kwargs
     ):
         self.tokenizer = tokenizer
