@@ -1226,14 +1226,15 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         judge_scores.append(0.5)  # Neutral score for empty responses
                         continue
                         
+                    print("response text for judge reward calculation:", response_text)
                     open_tags, close_tags = count_score_tags(response_text)
                     
                     # Perfect score if exactly one <score> and one </score> tag
                     # Generation has tags for itself already
-                    if open_tags == 2 and close_tags == 2:
+                    if open_tags == 3 and close_tags == 3:
                         tag_score = 1.0
                     elif open_tags == close_tags:
-                        if open_tags >= 3:
+                        if open_tags >= 4:
                             tag_score = 0.5
                         else:
                             tag_score = 0.0
@@ -1302,11 +1303,11 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     scores = self.extract_score_from_tags(text)
                     
                     # Dump prompt and evaluation response to file separated by ===
-                    eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
-                    eval_file.write("\n==================\n")
-                    eval_file.write(text)
-                    eval_file.write("\n==================\n\n")
-                    eval_file.flush()
+                    # eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
+                    # eval_file.write("\n==================\n")
+                    # eval_file.write(text)
+                    # eval_file.write("\n==================\n\n")
+                    # eval_file.flush()
                     
                     print("Actor evaluation response:", text)
                     try:
@@ -1388,11 +1389,11 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         scores = self.extract_score_from_tags(text)
                         
                         # Dump prompt and evaluation response to file separated by ===
-                        eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
-                        eval_file.write("\n==================\n")
-                        eval_file.write(text)
-                        eval_file.write("\n==================\n\n")
-                        eval_file.flush()
+                        # eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
+                        # eval_file.write("\n==================\n")
+                        # eval_file.write(text)
+                        # eval_file.write("\n==================\n\n")
+                        # eval_file.flush()
                         
                         print("Actor evaluation response:", text)
                         try:
@@ -2128,7 +2129,7 @@ class BenchmarkEvaluationRewardManager:
         max_tokens: int = 500,
         top_p: float = 0.95,
         stream: bool = False,
-        max_workers: int = 25,  # Number of parallel processes
+        max_workers: int = 15,  # Number of parallel processes
         **kwargs
     ):
         self.tokenizer = tokenizer
