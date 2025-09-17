@@ -969,7 +969,6 @@ class GeneralIORewardManager:
         prompt_manager=None,
         normalize_scores_in_batch: bool = False,
         use_format_reward: bool = False,
-        api_keys: List[str] = None,
         **kwargs
     ):
         self.tokenizer = tokenizer
@@ -994,125 +993,17 @@ class GeneralIORewardManager:
         self.normalize_scores_in_batch = normalize_scores_in_batch
         self.use_format_reward = use_format_reward
 
-        # 支持多个API keys
-        if api_keys is None:
-            api_keys = ["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"]
-        
-        self.api_keys = api_keys
-        
-        # 创建多个clients
-        self.clients = [OpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=key,
-            timeout=120,
-            max_retries=5
-        ) for key in self.api_keys]
-        
-        # 创建循环迭代器和锁
-        self.client_cycle = itertools.cycle(self.clients)
-        self.client_lock = threading.Lock()
-
         assert not self.train_judge or self.judge_with_actor, "judge_with_actor must be activated if train_judge is True"
-
-    def _get_next_client(self):
-        """线程安全地获取下一个client"""
-        with self.client_lock:
-            return next(self.client_cycle)
-
-    def _generate_llm_responses_parallel(self, prompts: List[str], max_workers: int = 10) -> List[List[float]]:
-        """
-        并行生成多个LLM响应
-        
-        Args:
-            prompts: 提示列表
-            max_workers: 最大并行工作数
-            
-        Returns:
-            每个提示对应的分数列表
-        """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-        
-        def evaluate_prompt(prompt_data):
-            prompt, idx = prompt_data
-            try:
-                # 使用线程安全的多client机制
-                client = self._get_next_client()
-                
-                completion = client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=self.temperature,
-                    top_p=self.top_p,
-                    max_tokens=self.max_tokens,
-                    stream=False  # 并行时使用非流式
-                )
-
-                result = completion.choices[0].message.content.strip()
-                print(f"LLM Response {idx}: {result}")  # Debugging output
-                    
-                # Use the new extract_score_from_tags function
-                extracted_scores = self.extract_score_from_tags(result)
-                if extracted_scores:
-                    # Convert scores to 0-1 range
-                    normalized_scores = []
-                    for score in extracted_scores:
-                        # Assume scores are in 1-10 range, normalize to 0-1
-                        if score >= 1 and score <= 10:
-                            normalized_score = (score - 1) / 9.0
-                            normalized_scores.append(min(1.0, max(0.0, normalized_score)))
-                        else:
-                            # If score is already normalized or in different range, keep as is
-                            normalized_scores.append(min(1.0, max(0.0, score)))
-                    return idx, normalized_scores
-                else:
-                    # Fallback: try to extract any number between 1-10
-                    print(f"Falling back to match any number between 1-10 for prompt {idx}.")
-                    import re
-                    fallback_match = re.findall(r'(\d+)', result)
-                    if fallback_match:
-                        score_list = []
-                        for score in fallback_match:
-                            score = int(score)
-                            if 1 <= score <= 10:
-                                score = (score - 1) / 9.0
-                                score_list.append(min(1.0, max(0.0, score)))
-                        if score_list:
-                            return idx, score_list
-                    return idx, [0.0]
-            except Exception as e:
-                print(f"Error in parallel LLM evaluation for prompt {idx}: {e}")
-                return idx, [0.0]
-
-        # 准备任务
-        prompt_data = [(prompt, i) for i, prompt in enumerate(prompts)]
-        results = [None] * len(prompts)
-        
-        # 使用ThreadPoolExecutor进行并行处理
-        PrettyPrinter.status("Info", f"Starting parallel LLM evaluation with {max_workers} workers for {len(prompts)} prompts", "info")
-        
-        with ThreadPoolExecutor(max_workers=min(max_workers, len(self.clients))) as executor:
-            future_to_idx = {executor.submit(evaluate_prompt, data): data[1] for data in prompt_data}
-            
-            for future in as_completed(future_to_idx):
-                try:
-                    idx, scores = future.result()
-                    results[idx] = scores
-                except Exception as e:
-                    idx = future_to_idx[future]
-                    print(f"Future failed for prompt {idx}: {e}")
-                    results[idx] = [0.0]
-        
-        # 确保所有结果都有值
-        for i, result in enumerate(results):
-            if result is None:
-                results[i] = [0.0]
-        
-        PrettyPrinter.status("Success", f"Completed parallel LLM evaluation for {len(prompts)} prompts", "success")
-        return results
 
     def set_prompt_manager(self, prompt_manager):
         """Set or update the prompt_manager for this reward manager."""
         self.prompt_manager = prompt_manager
+        
+        # Initialize the external LLM client
+        self.client = OpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key="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"
+        )
 
     def extract_score_from_tags(self, text: str) -> List[float]:
         """
@@ -1421,11 +1312,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
         if problem_type.startswith("pred"):
             try:
                 if not self.judge_with_actor:
-                    # 使用并行评估代替单个调用
-                    prompts = [self._generate_prompt_for_pred(data_dict, self.infer_together) for data_dict in data_dicts]
-                    parallel_results = self._generate_llm_responses_parallel(prompts, max_workers=min(10, len(self.clients)))
-                    avg_pred_scores = [result[0] if result else 0.0 for result in parallel_results]
-                    
+                    for data_dict in data_dicts:
+                        avg_pred_scores.append(self._generate_llm_response(self._generate_prompt_for_pred(data_dict, self.infer_together))[0])
                     if self.normalize_scores_in_batch:
                         avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
                     return avg_gen_scores, avg_pred_scores
@@ -1514,10 +1402,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
         if problem_type.startswith("gen") and not self.infer_together:
             try:
                 if not self.judge_with_actor:
-                    # 使用并行评估代替单个调用
-                    prompts = [self._generate_prompt_for_gen(data_dict) for data_dict in data_dicts]
-                    parallel_results = self._generate_llm_responses_parallel(prompts, max_workers=min(10, len(self.clients)))
-                    avg_gen_scores = [result[0] if result else 0.0 for result in parallel_results]
+                    for data_dict in data_dicts:
+                        avg_gen_scores.append(self._generate_llm_response(self._generate_prompt_for_gen(data_dict))[0])
                 else:
 
                     if rollout_actor_wg is None:
@@ -1718,9 +1604,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     if uid in responses_by_uid:
                         gen_scores = []
                         pred_scores = []
-                        
-                        # 收集所有评估提示
-                        eval_prompts = []
                         for response_data in responses_by_uid[uid]:
                             # Create evaluation prompt
                             eval_prompt = self._generate_prompt_for_judge(
@@ -1733,27 +1616,17 @@ When you reference your own scores, you do not use the <score> and </score> tags
                             else:
                                 PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score:\n\n[Question]: {response_data['question']}\n\n[Answer]: {response_data['response']}")
                             
-                            eval_prompts.append(eval_prompt)
-                        
-                        # 使用并行评估代替单个调用
-                        if eval_prompts:
-                            parallel_results = self._generate_llm_responses_parallel(eval_prompts, max_workers=min(10, len(self.clients)))
-                            
-                            for scores in parallel_results:
-                                try:
-                                    if not self.infer_together:
-                                        # assert len(scores) == 1, f"Expected one score in the response, got: {scores}"
-                                        if scores:
-                                            pred_scores.append(scores[0])
-                                    else:
-                                        # assert len(scores) == 2, f"Expected two scores in the response, got: {scores}"
-                                        if len(scores) >= 2:
-                                            gen_scores.append(scores[0])
-                                            pred_scores.append(scores[1])
-                                        elif len(scores) == 1:
-                                            pred_scores.append(scores[0])
-                                except:
-                                    pass
+                            scores = self._generate_llm_response(eval_prompt)
+                            try:
+                                if not self.infer_together:
+                                    # assert len(scores) == 1, f"Expected one score in the response, got: {scores}"
+                                    pred_scores.append(scores[0])
+                                else:
+                                    # assert len(scores) == 2, f"Expected two scores in the response, got: {scores}"
+                                    gen_scores.append(scores[0])
+                                    pred_scores.append(scores[1])
+                            except:
+                                pass
                         
                         avg_pred_score = np.mean(pred_scores) if pred_scores else 0.5
                         avg_pred_scores.append(avg_pred_score)
@@ -1780,13 +1653,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
         return avg_gen_scores, avg_pred_scores
      
     def _generate_llm_response(self, prompt: str) -> List[float]:
-        """Call the external LLM for evaluation using round-robin client selection."""
+        """Call the external LLM for evaluation."""
         try:
-            # 线程安全地获取下一个 client
-            with self.client_lock:
-                client = next(self.client_cycle)
-            
-            completion = client.chat.completions.create(
+            completion = self.client.chat.completions.create(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=self.temperature,
