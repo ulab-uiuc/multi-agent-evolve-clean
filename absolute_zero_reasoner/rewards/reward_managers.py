@@ -2324,6 +2324,7 @@ class BenchmarkEvaluationRewardManager:
         top_p: float = 0.95,
         stream: bool = False,
         max_workers: int = 15,  # Number of parallel processes
+        api_keys: List[str] = None,
         **kwargs
     ):
         self.tokenizer = tokenizer
