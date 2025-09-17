@@ -16,8 +16,11 @@ Note that we don't combine the main with ray_trainer as ray_trainer is used by o
 """
 import ray
 import hydra
+import json
+import os
 from pathlib import Path
 from pprint import pprint
+from typing import List
 
 from omegaconf import OmegaConf
 from verl.utils.fs import copy_local_path_from_hdfs
@@ -26,6 +29,42 @@ from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
 from absolute_zero_reasoner.trainer.ppo.azr_ray_trainer import CodeIORayPPOTrainer, GeneralIORayPPOTrainer
 from absolute_zero_reasoner.rewards.reward_managers import CodeIORewardManager, GeneralIORewardManager, BenchmarkEvaluationRewardManager
+
+
+def load_api_keys(api_file_path: str = "api.json") -> List[str]:
+    """
+    Load API keys from a JSON file.
+    
+    Args:
+        api_file_path: Path to the API keys JSON file
+        
+    Returns:
+        List of API keys
+    """
+    try:
+        # Try multiple possible locations for the API file
+        possible_paths = [
+            api_file_path,  # Current working directory
+            os.path.join(os.path.dirname(__file__), api_file_path),  # Same directory as this script
+            os.path.join(os.path.dirname(__file__), "..", api_file_path),  # Parent directory of this script
+            os.path.join(os.path.dirname(__file__), "..", "..", api_file_path),  # Project root directory
+        ]
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                print(f"Loading API keys from: {path}")
+                with open(path, 'r') as f:
+                    data = json.load(f)
+                    api_keys = data.get('api_keys', [])
+                    if api_keys:
+                        return api_keys
+        
+        print(f"Warning: API file {api_file_path} not found in any expected locations")
+        print(f"Searched in: {possible_paths}")
+        return ["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"]
+    except Exception as e:
+        print(f"Error loading API keys: {e}")
+        return ["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"]
 
 
 @hydra.main(config_path='configs', config_name='azr_ppo_trainer', version_base=None)
@@ -66,6 +105,10 @@ def run_ppo(config) -> None:
 class TaskRunner:
     
     def run(self, config):
+        # Load API keys from api.json
+        api_keys = load_api_keys()
+        print(f"Loaded {len(api_keys)} API keys for parallel evaluation")
+        
         # Set up dynamic timestamp and directories before resolving config
         from datetime import datetime
         import os
@@ -253,6 +296,7 @@ class TaskRunner:
                 top_p=getattr(config.reward_fn, 'top_p', 0.95),
                 stream=getattr(config.reward_fn, 'stream', True),
                 boxed_retry=config.reward_fn.boxed_retry,
+                api_keys=api_keys,  # Pass the loaded API keys
                 # maybe judge_with_actor as well?
             )
         else:
