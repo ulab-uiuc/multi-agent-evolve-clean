@@ -160,7 +160,7 @@ Choose the correct answer:"""
     
     return data
 
-def load_aime24_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+def load_aime24_dataset(split: str = "train", num_samples: int = None) -> List[Dict]:
     """Load AIME 2024 dataset."""
     dataset = load_dataset("HuggingFaceH4/aime_2024", split=split)
     
