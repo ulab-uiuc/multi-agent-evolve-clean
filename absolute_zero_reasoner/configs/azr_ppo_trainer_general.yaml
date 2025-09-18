@@ -255,6 +255,7 @@ actor_rollout_ref:
 
 trainer:
   output_dir: null  # Will be set dynamically at runtime
+  default_data_dir: data # Directory for storing fixed datasets (e.g., fixed_fusionbench_1000.json)
   save_freq: 10
   log_freq: 1
   eval_freq: 5
