@@ -1390,7 +1390,10 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 
                 if self.config.trainer.get('val_only', False):
                     return
-            
+        
+        if self.config.trainer.val_only:
+            PrettyPrinter.status("INFO", "Validation only mode enabled, exiting after validation", "info")
+            return
 
         if self.loaded_datasets:
             PrettyPrinter.section_header(f"Resuming training from checkpoint")

@@ -260,6 +260,7 @@ trainer:
   log_freq: 1
   eval_freq: 5
   test_freq: 10
+  val_only: False
   save_tokenizer: True
   max_eval_steps: 1
   rollout_micro_batch_size: 128
