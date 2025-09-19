@@ -316,7 +316,7 @@ def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]
             print(f"Answer: {data[-1]['answer']}")
             print("-" * 40)
 
-        return data
+    return data
 
 def save_dataset_to_parquet(data: List[Dict], output_path: str, dataset_name: str):
     """Save dataset to parquet format."""
