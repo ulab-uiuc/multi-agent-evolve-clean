@@ -56,38 +56,37 @@ def load_gsm8k_dataset(split: str = "test", num_samples: int = None) -> List[Dic
     return data
 
 
-# def load_hellaswag_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
-#     """Load HellaSwag dataset."""
-#     dataset = load_dataset("hellaswag", split=split)
+def load_hellaswag_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load HellaSwag dataset."""
+    dataset = load_dataset("Rowan/hellaswag", split=split)
     
-#     data = []
-#     for i, item in enumerate(dataset):
-#         if num_samples and i >= num_samples:
-#             break
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
             
-#         # Format choices
-#         choices = item['endings']
-#         choice_text = "\n".join([f"{chr(65+j)}. {choice}" for j, choice in enumerate(choices)])
+        # Format choices
+        choices = item['endings']
+        choice_text = "\n".join([f"{chr(65+j)}. {choice}" for j, choice in enumerate(choices)])
         
-#         prompt_text = f"""Complete the following scenario by choosing the most likely continuation:
+        prompt_text = f"""Complete the following scenario by choosing the most likely continuation:
 
-# Context: {item['ctx']}
+Context: {item['ctx']}
 
-# Choices:
-# {choice_text}
+Choices:
+{choice_text}
 
-# Choose the most appropriate continuation (A, B, C, or D):"""
+Choose the most appropriate continuation (A, B, C, or D):"""
         
-#         data.append({
-#             "prompt": [{"role": "user", "content": prompt_text}],
-#             "ground_truth": chr(65 + int(item['label'])),  # Convert 0,1,2,3 to A,B,C,D
-#             "answer": chr(65 + int(item['label'])),
-#             "data_source": "hellaswag",
-#             "choices": choices,
-#             "extra_info": {"metric": "multiple_choice_accuracy"}
-#         })
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": chr(65 + int(item['label'])),  # Convert 0,1,2,3 to A,B,C,D
+            "answer": chr(65 + int(item['label'])),
+            "data_source": "hellaswag",
+            "extra_info": {"metric": "multiple_choice_accuracy"}
+        })
     
-#     return data
+    return data
 
 
 def load_mmlu_dataset(subject: str = "abstract_algebra", split: str = "test", num_samples: int = None) -> List[Dict]:
@@ -117,8 +116,6 @@ Choose the correct answer (A, B, C, or D):"""
             "ground_truth": chr(65 + item['answer']),  # Convert 0,1,2,3 to A,B,C,D
             "answer": chr(65 + item['answer']),
             "data_source": f"mmlu_{subject}",
-            "subject": subject,
-            "choices": choices,
             "extra_info": {"metric": "multiple_choice_accuracy"}
         })
         print(f"Loaded {subject} sample {i+1}: {item['question']}")
@@ -158,9 +155,26 @@ Choose the correct answer:"""
             "ground_truth": item['answerKey'],
             "answer": item['answerKey'],
             "data_source": f"arc_{'challenge' if challenge else 'easy'}",
-            "choices": choices,
-            "choice_labels": labels,
             "extra_info": {"metric": "multiple_choice_accuracy"}
+        })
+    
+    return data
+
+def load_aime24_dataset(split: str = "train", num_samples: int = None) -> List[Dict]:
+    """Load AIME 2024 dataset."""
+    dataset = load_dataset("HuggingFaceH4/aime_2024", split=split)
+    
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+            
+        data.append({
+            "prompt": [{"role": "user", "content": f"Solve the following math problem step by step:\n\n{item['problem']}"}],
+            "ground_truth": item['answer'],
+            "answer": item['answer'],
+            "data_source": "aime24",
+            "extra_info": {"metric": "math_accuracy"}
         })
     
     return data
@@ -180,7 +194,6 @@ def load_truthfulqa_dataset(split: str = "validation", num_samples: int = None) 
             "ground_truth": item['best_answer'],
             "answer": item['best_answer'],
             "data_source": "truthfulqa",
-            "category": item['category'],
             "extra_info": {"metric": "truthfulness_accuracy"}
         })
     
@@ -213,7 +226,7 @@ def main():
     
     datasets_to_load = args.datasets
     if "all" in datasets_to_load:
-        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa"]
+        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa","aime24"]
     
     print(f"Preparing datasets: {datasets_to_load}")
     print(f"Output directory: {args.output_dir}")
@@ -255,6 +268,11 @@ def main():
         print("\nLoading TruthfulQA dataset...")
         truthfulqa_data = load_truthfulqa_dataset(num_samples=args.num_samples)
         save_dataset_to_parquet(truthfulqa_data, args.output_dir, "truthfulqa")
+
+    if "aime24" in datasets_to_load:
+        print("\nLoading AIME 2024 dataset...")
+        aime24_data = load_aime24_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(aime24_data, args.output_dir, "aime24")
     
     print(f"\nAll datasets prepared and saved to {args.output_dir}")
 

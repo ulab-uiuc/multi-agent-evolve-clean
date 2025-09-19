@@ -1250,77 +1250,74 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         return batch, metrics
 
     def _init_seed_dataset(self):
-        """Manually load and convert 100 seed examples from MATH, HumanEval, or MT-Bench into IO format."""
-        PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (with full io_item structure)")
+        """Load fixed 1000 seed examples from FusionBench JSON file."""
+        PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (from fixed data)")
 
-        examples = []
-        example_pairs = []
-        split = "train"  # or "seed" if you prefer
-
-        # Track global index
-        idx = 0
-
-        # ---------- FusionBench ----------
+        # Default data directory for storing fixed datasets
+        base_data_dir = getattr(self.config.trainer, 'default_data_dir', None) or self.config.trainer.default_local_dir
+        default_data_dir = Path(base_data_dir) / "fixed_datasets"
+        default_data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Primary path in the default data directory
+        primary_data_path = default_data_dir / "fixed_fusionbench_1000.json"
+        
+        # Alternative paths to search for the fixed data
+        alternative_paths = [
+            Path(self.config.trainer.default_local_dir).parent / "data" / "fixed_fusionbench_1000.json",
+            Path("data/fixed_fusionbench_1000.json"),
+            Path("./fixed_fusionbench_1000.json"),
+            Path(self.config.trainer.default_local_dir) / "fixed_fusionbench_1000.json",
+        ]
+        
+        # Find the data file
+        data_file_path = None
+        if primary_data_path.exists():
+            data_file_path = primary_data_path
+        else:
+            for alt_path in alternative_paths:
+                if alt_path.exists():
+                    data_file_path = alt_path
+                    break
+        
+        if data_file_path is None:
+            PrettyPrinter.status("ERROR", f"Fixed FusionBench data file not found. Searched paths:", "error")
+            PrettyPrinter.status("ERROR", f"  - {primary_data_path} (default data dir)", "error")
+            for alt_path in alternative_paths:
+                PrettyPrinter.status("ERROR", f"  - {alt_path}", "error")
+            PrettyPrinter.status("ERROR", "Please create the fixed data file using scripts/create_fixed_fusionbench_data.py", "error")
+            PrettyPrinter.status("INFO", f"Default data directory created at: {default_data_dir}", "info")
+            raise FileNotFoundError("Fixed FusionBench data file not found")
+        
         try:
-            general_data = load_dataset("ulab-ai/FusionBench","train", split="data")
-            general_samples = random.sample(list(general_data), k=min(1000, len(general_data)))
-            for item in general_samples:
-                question = item["query"]
-                answer = item["ground_truth"]
-                io_prompt = f"{question}"
-                chosen_references = []
-                io_item = {
-                    "data_source": 'gen_general',
-                    "prompt": [{
-                        "role": "user",
-                        "content": io_prompt,
-                    }],
-                    "question": question,
-                    "ability": "general",
-                    "reward_model": {
-                        "style": "rule",
-                        "ground_truth": answer,
-                    },
-                    "extra_info": {
-                        'split': split,
-                        'index': idx,
-                        'metric': 'gen_general',
-                        'chosen_references': chosen_references,
-                    }
-                }
-                io_item_pair = {
-                    "data_source": 'gen_general',
-                    "prompt": [{
-                        "role": "user",
-                        "content": io_prompt,
-                    }],
-                    "question": question,
-                    "answer": answer,
-                    "ability": "general",
-                    "reward_model": {
-                        "style": "rule",
-                        "ground_truth": answer,
-                    },
-                    "extra_info": {
-                        'split': split,
-                        'index': idx,
-                        'metric': 'gen_general',
-                        'chosen_references': chosen_references,
-                    }
-                }
-                examples.append(io_item)
-                example_pairs.append(io_item_pair)
-                idx += 1
-            PrettyPrinter.status("INFO", f"Loaded {len(general_samples)} FusionBench examples", "info")
+            # Load the fixed data
+            with open(data_file_path, 'r', encoding='utf-8') as f:
+                fixed_data = json.load(f)
+            
+            examples = fixed_data['examples']
+            example_pairs = fixed_data['example_pairs']
+            
+            # If data was found in alternative location, copy it to default data dir
+            if data_file_path != primary_data_path:
+                PrettyPrinter.status("INFO", f"Copying data from {data_file_path} to default location {primary_data_path}", "info")
+                with open(primary_data_path, 'w', encoding='utf-8') as f:
+                    json.dump(fixed_data, f, ensure_ascii=False, indent=2)
+            
+            # Log metadata
+            metadata = fixed_data.get('metadata', {})
+            PrettyPrinter.status("INFO", f"Loaded fixed data from: {data_file_path}", "info")
+            PrettyPrinter.status("INFO", f"Default data directory: {default_data_dir}", "info")
+            PrettyPrinter.status("INFO", f"Data source: {metadata.get('source', 'Unknown')}", "info")
+            PrettyPrinter.status("INFO", f"Seed: {metadata.get('seed', 'Unknown')}", "info")
+            PrettyPrinter.status("INFO", f"Number of examples: {len(examples)}", "info")
+            PrettyPrinter.status("INFO", f"Number of example pairs: {len(example_pairs)}", "info")
+            
+            # Use the fixed data directly (no shuffling since it's already fixed)
+            seed_examples = examples[:1000]  # Take first 1000 or all if less
+            seed_example_pairs = example_pairs[:1000]
+            
         except Exception as e:
-            PrettyPrinter.status("WARNING", f"Failed to load FusionBench: {str(e)}", "warn")
-
-        # Shuffle and truncate
-        ex = list(zip(examples, example_pairs))
-        random.shuffle(ex)
-        examples, example_pairs = zip(*ex)
-        seed_examples = examples[:1000]
-        seed_example_pairs = example_pairs[:1000]
+            PrettyPrinter.status("ERROR", f"Failed to load fixed FusionBench data: {str(e)}", "error")
+            raise
 
         # Upload to ray
         ray.get(self.dataset_manager.add_general_batch.remote(seed_examples, self.global_steps))
@@ -1393,7 +1390,10 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 
                 if self.config.trainer.get('val_only', False):
                     return
-            
+        
+        if self.config.trainer.val_only:
+            PrettyPrinter.status("INFO", "Validation only mode enabled, exiting after validation", "info")
+            return
 
         if self.loaded_datasets:
             PrettyPrinter.section_header(f"Resuming training from checkpoint")
