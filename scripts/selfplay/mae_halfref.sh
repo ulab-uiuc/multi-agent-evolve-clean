@@ -6,12 +6,13 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="0,1"
+export CUDA_VISIBLE_DEVICES="6,7"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
+    +benchmark_max_samples=100 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
     algorithm.adv_estimator=reinforce_plus_plus \
