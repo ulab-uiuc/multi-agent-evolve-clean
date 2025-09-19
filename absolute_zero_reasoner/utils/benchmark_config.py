@@ -122,5 +122,5 @@ DEFAULT_BENCHMARK_CONFIG = {
     'default_benchmarks': ['math', 'gsm8k', 'truthfulqa', 'arc_challenge','arc_easy', 'mmlu_abstract_algebra', 'mmlu_anatomy', 'mmlu_astronomy', 'mmlu_business_ethics', 'mmlu_clinical_knowledge'],
     #'default_benchmarks': ['math', 'mmlu_clinical_knowledge'],
     'evaluation_frequency': 100,  # Evaluate every 100 steps
-    'max_samples_per_benchmark': 100,  # Limit samples for faster evaluation
+    'max_samples_per_benchmark': 400,  # Limit samples for faster evaluation
 }

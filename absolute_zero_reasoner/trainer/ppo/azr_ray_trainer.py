@@ -1185,7 +1185,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump questions to file
                 if valid_data:
-                    with open('question.txt', 'a') as f:
+                    with open('question2.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             f.write(f"Question: {item['question']}\n")
@@ -1210,7 +1210,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump question-answer pairs to file
                 if valid_data:
-                    with open('pair.txt', 'a') as f:
+                    with open('pair2.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             if 'question' in item:
@@ -1358,7 +1358,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             self.tokenizer.chat_template = "{%- for message in messages -%}{{- '\n' if not loop.first -}}{{- message['content'] -}}{%- endfor -%}"
 
         # currently, we only support validation using the reward_function.
-        if self.config.trainer.get('val_before_train', True) and self.global_steps == 0:
+        if self.config.trainer.get('val_before_train', True) and (self.global_steps == 0 or self.config.trainer.get('val_only', False)):
             # PrettyPrinter.section_header(f"Starting Initial Validation")
             # val_metrics = self._validate()
             # PrettyPrinter.table(
@@ -1788,6 +1788,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         self._code_dir = code_dir
         self.loaded_datasets = False
         if self.config.trainer.resume_mode == 'auto' and os.path.exists(os.path.join(self.config.trainer.default_local_dir, 'datasets', 'datasets.pkl')):
+            self._load_datasets(self.config.trainer.default_local_dir)
+        elif self.config.trainer.resume_mode == 'resume_path' and os.path.exists(os.path.join(self.config.trainer.default_local_dir, 'datasets', 'datasets.pkl')):
             self._load_datasets(self.config.trainer.default_local_dir)
         elif self.config.trainer.resume_mode == 'disable':
             if code_dir.exists():

@@ -1932,7 +1932,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     else:
                         # Override scores if not valid
                         # Dump bad question to file
-                        with open('bad_question.txt', 'a') as f:
+                        with open('bad_question2.txt', 'a') as f:
                             f.write(f"Question: {question}\n")
                             f.write("==============================================\n")
                             if 'thought' in data_dict:

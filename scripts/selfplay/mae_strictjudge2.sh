@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="7,8"
+export CUDA_VISIBLE_DEVICES="8,9"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -46,11 +46,11 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_trainjudge_rejectbadquestion' \
+    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_trainjudge_rejectbadquestion_noref' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
-    trainer.remove_previous_ckpt_in_save=True \
+    trainer.remove_previous_ckpt_in_save=False \
     trainer.del_local_ckpt_after_load=True \
     trainer.test_freq=25 \
     +trainer.val_before_train=true \
@@ -74,16 +74,16 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.train_propose=True \
     azr.reward.n_samples=5 \
     azr.reward.generation_reward_config.format_reward=false \
-    azr.reward.generation_reward_config.include_references=1 \
+    azr.reward.generation_reward_config.include_references=0 \
     azr.reward.generation_reward_config.generation_accuracy_convertion=inverse \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=false \
-    azr.data_selection_strategy.content_max_length=8096 \
+    azr.data_selection_strategy.content_max_length=4096 \
     azr.data_selection_strategy.max_questions=10000 \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=disable \
-    +trainer.resume_path=./checkpoints/general/2025-09-14/03-03-20_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
+    trainer.resume_mode=auto \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-32-05_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_trainjudge_rejectbadquestion_noref \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \

@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="1,3,5,6"
+export CUDA_VISIBLE_DEVICES="3,5,6,7"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -36,7 +36,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.max_num_batched_tokens=16384 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.n=1 \
@@ -77,13 +77,13 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.reward.generation_reward_config.include_references=1 \
     azr.reward.generation_reward_config.generation_accuracy_convertion=inverse \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=false \
-    azr.data_selection_strategy.content_max_length=8096 \
+    azr.data_selection_strategy.content_max_length=4096 \
     azr.data_selection_strategy.max_questions=10000 \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=disable \
-    +trainer.resume_path=./checkpoints/general/2025-09-14/03-03-20_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
+    trainer.resume_mode=auto \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-14-13_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \
