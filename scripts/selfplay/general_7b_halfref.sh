@@ -12,6 +12,7 @@ export NCCL_P2P_DISABLE=1
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
+    +benchmark_max_samples=100 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
     algorithm.adv_estimator=reinforce_plus_plus \
