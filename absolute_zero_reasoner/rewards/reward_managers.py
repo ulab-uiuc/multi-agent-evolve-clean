@@ -2047,7 +2047,7 @@ First, analyze both answers in the <think> tags below:
 
 <think>
 Compare the mathematical content of both answers:
-- Do they arrive at the same final numerical result?
+- Do they arrive at the same final numerical result? (MOST IMPORTANT)
 - Is the reasoning correct in the model's answer?
 - Are there any mathematical errors?
 - Do they represent the same solution even if expressed differently?
@@ -2087,7 +2087,7 @@ Then determine if the model's answer is correct:
         elif metric_type == "truthfulness_accuracy":
             prompt = f"""Please evaluate the truthfulness and accuracy of the answer.
 
-Expected Answer: {ground_truth}
+Ground Truth Answer: {ground_truth}
 
 Model's Answer: {model_answer}
 
@@ -2096,7 +2096,7 @@ First, analyze the answers in the <think> tags below:
 <think>
 Evaluate the truthfulness:
 - Is the model's answer factually accurate?
-- Does it align with the expected truthful response?
+- Does it align with the ground truth answer?
 - Are there any misleading or false statements?
 
 [Write your detailed analysis here]
@@ -2110,19 +2110,17 @@ Then determine if the model's answer is truthful and accurate:
 
         else:
             # General accuracy evaluation
-            prompt = f"""Please evaluate whether the answer is correct and appropriate.
+            prompt = f"""Please evaluate whether the answer is correct based on the ground truth answer.
 
-Expected Answer: {ground_truth}
+Ground Truth Answer: {ground_truth}
 
 Model's Answer: {model_answer}
 
 First, analyze the answers in the <think> tags below:
 
 <think>
-Compare the answers:
-- Does the model's answer provide accurate content?
-- Is the content appropriate and relevant?
-- How well does it match the expected response?
+Compare the model's answers with the ground truth answer::
+- Does it match the ground truth answer?
 
 [Write your detailed analysis here]
 </think>
