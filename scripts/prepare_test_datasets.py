@@ -294,8 +294,8 @@ def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]
         dataset = load_dataset("SaylorTwift/bbh", subset, split=split)
         data = []
         for i, item in enumerate(dataset):
-            if num_samples and i >= num_samples:
-                break
+            # if num_samples and i >= num_samples:
+            #     break
             question = item['input']
             correct_answer = item['target']
 
