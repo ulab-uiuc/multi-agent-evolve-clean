@@ -205,8 +205,8 @@ def load_gpqa_dataset(split: str = "train", num_samples: int = None) -> List[Dic
     
     data = []
     for i, item in enumerate(dataset):
-        if num_samples and i >= num_samples:
-            break
+        # if num_samples and i >= num_samples:
+        #     break
             
         # Format the question and choices
         question = item['Question']
@@ -289,10 +289,10 @@ def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]
         "web_of_lies",
         "word_sorting",
     ]
+    data = []
     for subset in BBH_SUBSETS:
         # dataset = load_dataset("SaylorTwift/bbh", split=split)
         dataset = load_dataset("SaylorTwift/bbh", subset, split=split)
-        data = []
         for i, item in enumerate(dataset):
             # if num_samples and i >= num_samples:
             #     break
