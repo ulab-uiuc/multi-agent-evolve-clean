@@ -258,6 +258,116 @@ Choose the correct answer (A, B, C, or D):"""
     
     return data
 
+def load_mmlu_dataset_as_a_whole(split: str = "test", num_samples: int = None) -> List[Dict]:
+    # enumerate all subjects in MMLU
+    MMLU_SUBJECTS = [
+        "abstract_algebra",
+        "anatomy", 
+        "astronomy",
+        "business_ethics",
+        "clinical_knowledge",
+        "college_biology",
+        "college_chemistry", 
+        "college_computer_science",
+        "college_mathematics",
+        "college_medicine",
+        "college_physics",
+        "computer_security",
+        "conceptual_physics",
+        "econometrics",
+        "electrical_engineering",
+        "elementary_mathematics", 
+        "formal_logic",
+        "global_facts",
+        "high_school_biology",
+        "high_school_chemistry",
+        "high_school_computer_science",
+        "high_school_european_history",
+        "high_school_geography",
+        "high_school_government_and_politics",
+        "high_school_macroeconomics",
+        "high_school_mathematics",
+        "high_school_microeconomics",
+        "high_school_physics",
+        "high_school_psychology",
+        "high_school_statistics",
+        "high_school_us_history",
+        "high_school_world_history",
+        "human_aging",
+        "human_sexuality",
+        "international_law",
+        "jurisprudence",
+        "logical_fallacies",
+        "machine_learning",
+        "management",
+        "marketing",
+        "medical_genetics",
+        "miscellaneous",
+        "moral_disputes",
+        "moral_scenarios",
+        "nutrition",
+        "philosophy",
+        "prehistory",
+        "professional_accounting",
+        "professional_law", 
+        "professional_medicine",
+        "professional_psychology",
+        "public_relations",
+        "security_studies",
+        "sociology",
+        "us_foreign_policy",
+        "virology",
+        "world_religions"
+    ]
+    
+    data = []
+    total_collected = 0
+    
+    for subject in MMLU_SUBJECTS:
+        if num_samples and total_collected >= num_samples:
+            break
+            
+        try:
+            dataset = load_dataset("cais/mmlu", subject, split=split)
+            
+            subject_samples = 0
+            for i, item in enumerate(dataset):
+                if num_samples and total_collected >= num_samples:
+                    break
+                    
+                question = item['question']
+                choices = item['choices']
+                correct_answer_index = item['answer']
+                correct_answer = choices[correct_answer_index] if correct_answer_index < len(choices) else str(correct_answer_index)
+                
+                # Format as multiple choice question
+                choices_text = "\n".join([f"{chr(65+j)}. {choice}" for j, choice in enumerate(choices)])
+                full_question = f"{question}\n{choices_text}"
+                
+                data.append({
+                    "prompt": [{"role": "user", "content": full_question}],
+                    "ground_truth": correct_answer,
+                    "answer": correct_answer,
+                    "data_source": f"mmlu",
+                    "extra_info": {
+                        "metric": "multiple_choice_accuracy",
+                        "subject": subject
+                    }
+                })
+                
+                total_collected += 1
+                subject_samples += 1
+                
+            print(f"Loaded {subject_samples} samples from MMLU subject: {subject}")
+            
+        except Exception as e:
+            print(f"Failed to load MMLU subject {subject}: {e}")
+            continue
+    
+    print(f"Total MMLU samples loaded: {len(data)}")
+    return data
+
+
 def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
     """Load BBH dataset."""
     BBH_SUBSETS = [
@@ -353,12 +463,35 @@ def main():
     #     save_dataset_to_parquet(hellaswag_data, args.output_dir, "hellaswag")
     
     if "mmlu" in datasets_to_load:
-        print("\nLoading MMLU dataset (sample subjects)...")
-        # Load a few representative subjects
-        subjects = ["abstract_algebra", "anatomy", "astronomy", "business_ethics", "clinical_knowledge"]
+        print("\nLoading MMLU dataset (all subjects)...")
+        # Load all MMLU subjects
+        from scripts.prepare_test_datasets import load_mmlu_dataset_as_a_whole
+        
+        # First get the MMLU_SUBJECTS list from the function
+        def get_mmlu_subjects():
+            return [
+                "abstract_algebra", "anatomy", "astronomy", "business_ethics", "clinical_knowledge",
+                "college_biology", "college_chemistry", "college_computer_science", "college_mathematics",
+                "college_medicine", "college_physics", "computer_security", "conceptual_physics",
+                "econometrics", "electrical_engineering", "elementary_mathematics", "formal_logic",
+                "global_facts", "high_school_biology", "high_school_chemistry", "high_school_computer_science",
+                "high_school_european_history", "high_school_geography", "high_school_government_and_politics",
+                "high_school_macroeconomics", "high_school_mathematics", "high_school_microeconomics",
+                "high_school_physics", "high_school_psychology", "high_school_statistics",
+                "high_school_us_history", "high_school_world_history", "human_aging", "human_sexuality",
+                "international_law", "jurisprudence", "logical_fallacies", "machine_learning",
+                "management", "marketing", "medical_genetics", "miscellaneous", "moral_disputes",
+                "moral_scenarios", "nutrition", "philosophy", "prehistory", "professional_accounting",
+                "professional_law", "professional_medicine", "professional_psychology", "public_relations",
+                "security_studies", "sociology", "us_foreign_policy", "virology", "world_religions"
+            ]
+        
+        subjects = get_mmlu_subjects()
         for subject in subjects:
             mmlu_data = load_mmlu_dataset(subject=subject, num_samples=args.num_samples)
             save_dataset_to_parquet(mmlu_data, args.output_dir, f"mmlu_{subject}")
+        mmlu_data = load_mmlu_dataset_as_a_whole(num_samples=args.num_samples)
+        save_dataset_to_parquet(mmlu_data, args.output_dir, f"mmlu")
     
     if "arc" in datasets_to_load:
         print("\nLoading ARC dataset...")
