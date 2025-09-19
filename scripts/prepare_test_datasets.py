@@ -335,23 +335,25 @@ def load_mmlu_dataset_as_a_whole(split: str = "test", num_samples: int = None) -
                 if num_samples and total_collected >= num_samples:
                     break
                     
-                question = item['question']
                 choices = item['choices']
-                correct_answer_index = item['answer']
-                correct_answer = choices[correct_answer_index] if correct_answer_index < len(choices) else str(correct_answer_index)
+                choice_text = "\n".join([f"{chr(65+j)}. {choice}" for j, choice in enumerate(choices)])
                 
-                # Format as multiple choice question
-                choices_text = "\n".join([f"{chr(65+j)}. {choice}" for j, choice in enumerate(choices)])
-                full_question = f"{question}\n{choices_text}"
+                prompt_text = f"""Answer the following multiple choice question:
+
+Question: {item['question']}
+
+Choices:
+{choice_text}
+
+Choose the correct answer (A, B, C, or D):"""
                 
                 data.append({
-                    "prompt": [{"role": "user", "content": full_question}],
-                    "ground_truth": correct_answer,
-                    "answer": correct_answer,
+                    "prompt": [{"role": "user", "content": prompt_text}],
+                    "ground_truth": chr(65 + item['answer']),  # Convert 0,1,2,3 to A,B,C,D
+                    "answer": chr(65 + item['answer']),
                     "data_source": f"mmlu",
                     "extra_info": {
                         "metric": "multiple_choice_accuracy",
-                        "subject": subject
                     }
                 })
                 
