@@ -464,8 +464,6 @@ def main():
     
     if "mmlu" in datasets_to_load:
         print("\nLoading MMLU dataset (all subjects)...")
-        # Load all MMLU subjects
-        from scripts.prepare_test_datasets import load_mmlu_dataset_as_a_whole
         
         # First get the MMLU_SUBJECTS list from the function
         def get_mmlu_subjects():
