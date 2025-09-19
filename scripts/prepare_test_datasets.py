@@ -254,6 +254,7 @@ Choose the correct answer (A, B, C, or D):"""
         })
         
         print(f"Loaded GPQA sample {i+1}: {question[:100]}...")
+        print(f"Answer: {data[-1]['answer']}")
     
     return data
 
@@ -308,6 +309,12 @@ def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]
                 }
             })
 
+            print(f"Loaded BBH sample {i+1}: {question[:100]}...")
+            # print(f"Loaded BBH sample {i+1}: {question[:100]}...")
+            # print(f"Choices: {choice_text}")
+            print(f"Ground truth: {data[-1]['ground_truth']}")
+            print(f"Answer: {data[-1]['answer']}")
+            print("-" * 40)
 
         return data
 
