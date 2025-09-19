@@ -12,6 +12,7 @@ export NCCL_P2P_DISABLE=1
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
+    +benchmark_max_samples=100 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
     algorithm.adv_estimator=reinforce_plus_plus \
@@ -36,7 +37,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.max_num_batched_tokens=16384 \
-    actor_rollout_ref.rollout.gpu_memory_utilization=0.3 \
+    actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.enforce_eager=False \
     actor_rollout_ref.rollout.free_cache_engine=False \
     actor_rollout_ref.rollout.n=1 \

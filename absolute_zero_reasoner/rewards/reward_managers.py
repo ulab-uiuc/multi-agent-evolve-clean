@@ -1932,18 +1932,18 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     else:
                         # Override scores if not valid
                         # Dump bad question to file
-                        with open('bad_question2.txt', 'a') as f:
-                            f.write(f"Question: {question}\n")
-                            f.write("==============================================\n")
-                            if 'thought' in data_dict:
-                                f.write(f"Thought: {data_dict['thought']}\n")
-                                f.write("==============================================\n")
-                            if 'generation' in data_dict:
-                                f.write(f"Generation: {data_dict['generation']}\n")
-                                f.write("==============================================\n")
-                            f.write(f"LLM Score: {llm_scores[i]}\n")
-                            f.write("==============================================\n")
-                            f.write("\n")
+                        # with open('bad_question2.txt', 'a') as f:
+                        #     f.write(f"Question: {question}\n")
+                        #     f.write("==============================================\n")
+                        #     if 'thought' in data_dict:
+                        #         f.write(f"Thought: {data_dict['thought']}\n")
+                        #         f.write("==============================================\n")
+                        #     if 'generation' in data_dict:
+                        #         f.write(f"Generation: {data_dict['generation']}\n")
+                        #         f.write("==============================================\n")
+                        #     f.write(f"LLM Score: {llm_scores[i]}\n")
+                        #     f.write("==============================================\n")
+                        #     f.write("\n")
                         reward_tensor[i, valid_response_length - 1] = llm_scores[i]
                         all_scores['difficulty_score'][-1] = llm_scores[i]
                         all_scores['combined_score'][-1] = llm_scores[i]

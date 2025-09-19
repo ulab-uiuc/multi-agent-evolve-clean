@@ -1184,20 +1184,20 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     )
                 )
                 # Dump questions to file
-                if valid_data:
-                    with open('question2.txt', 'a') as f:
-                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
-                        for item in valid_data:
-                            f.write(f"Question: {item['question']}\n")
-                            f.write("==============================================\n")
-                            if 'thought' in item:
-                                f.write(f"Thought: {item['thought']}\n")
-                                f.write("==============================================\n")
-                            if 'generation' in item:
-                                f.write(f"Generation: {item['generation']}\n")
-                                f.write("==============================================\n")
-                            f.write("\n")
-                        f.write("\n")
+                # if valid_data:
+                #     with open('question2.txt', 'a') as f:
+                #         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                #         for item in valid_data:
+                #             f.write(f"Question: {item['question']}\n")
+                #             f.write("==============================================\n")
+                #             if 'thought' in item:
+                #                 f.write(f"Thought: {item['thought']}\n")
+                #                 f.write("==============================================\n")
+                #             if 'generation' in item:
+                #                 f.write(f"Generation: {item['generation']}\n")
+                #                 f.write("==============================================\n")
+                #             f.write("\n")
+                #         f.write("\n")
             if problem_type.startswith('pred'):
                 if problem_type.endswith('general'):
                     dataset_key = 'general_pair'
@@ -1209,21 +1209,21 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     )
                 )
                 # Dump question-answer pairs to file
-                if valid_data:
-                    with open('pair2.txt', 'a') as f:
-                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
-                        for item in valid_data:
-                            if 'question' in item:
-                                f.write(f"Question: {item['question']}\n")
-                                f.write("==============================================\n")
-                            if 'answer' in item:
-                                f.write(f"Answer: {item['answer']}\n")
-                                f.write("==============================================\n")
-                            elif 'generation' in item:
-                                f.write(f"Answer: {item['generation']}\n")
-                                f.write("==============================================\n")
-                            f.write("\n")
-                        f.write("\n")
+                # if valid_data:
+                #     with open('pair2.txt', 'a') as f:
+                #         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                #         for item in valid_data:
+                #             if 'question' in item:
+                #                 f.write(f"Question: {item['question']}\n")
+                #                 f.write("==============================================\n")
+                #             if 'answer' in item:
+                #                 f.write(f"Answer: {item['answer']}\n")
+                #                 f.write("==============================================\n")
+                #             elif 'generation' in item:
+                #                 f.write(f"Answer: {item['generation']}\n")
+                #                 f.write("==============================================\n")
+                #             f.write("\n")
+                #         f.write("\n")
             metrics.update(train_metrics)
             batch.batch['token_level_scores'] = reward_tensor
 
