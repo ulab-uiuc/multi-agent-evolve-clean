@@ -199,6 +199,117 @@ def load_truthfulqa_dataset(split: str = "validation", num_samples: int = None) 
     
     return data
 
+def load_gpqa_dataset(split: str = "train", num_samples: int = None) -> List[Dict]:
+    """Load GPQA dataset."""
+    dataset = load_dataset("Idavidrein/gpqa", 'gpqa_main', split=split)
+    
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+            
+        # Format the question and choices
+        question = item['Question']
+        correct_answer = item['Correct Answer']
+        incorrect_answers = [
+            item['Incorrect Answer 1'],
+            item['Incorrect Answer 2'], 
+            item['Incorrect Answer 3']
+        ]
+        
+        # Combine all answers and shuffle them
+        all_answers = [correct_answer] + incorrect_answers
+        import random
+        random.shuffle(all_answers)
+        
+        # Find which position the correct answer is in
+        correct_index = all_answers.index(correct_answer)
+        correct_letter = chr(65 + correct_index)  # Convert to A, B, C, D
+        
+        # Format choices
+        choice_text = "\n".join([f"{chr(65+j)}. {answer}" for j, answer in enumerate(all_answers)])
+        
+        prompt_text = f"""Answer the following scientific question:
+
+Question: {question}
+
+Choices:
+{choice_text}
+
+Choose the correct answer (A, B, C, or D):"""
+        
+        # Get additional metadata
+        subdomain = item.get('Subdomain', '')
+        high_level_domain = item.get('High-level domain', '')
+        difficulty = item.get("Writer's Difficulty Estimate", '')
+        
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": correct_answer,
+            "answer": correct_letter,
+            "data_source": "gpqa",
+            "extra_info": {
+                "metric": "multiple_choice_accuracy",
+            }
+        })
+        
+        print(f"Loaded GPQA sample {i+1}: {question[:100]}...")
+    
+    return data
+
+def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load BBH dataset."""
+    BBH_SUBSETS = [
+        "boolean_expressions",
+        "causal_judgement",
+        "date_understanding",
+        "disambiguation_qa",
+        "dyck_languages",
+        "formal_fallacies",
+        "geometric_shapes",
+        "hyperbaton",
+        "logical_deduction_three_objects",
+        "logical_deduction_five_objects",
+        "logical_deduction_seven_objects",
+        "movie_recommendation",
+        "multistep_arithmetic_two_vars",
+        "navigate",
+        "object_counting",
+        "penguins_in_a_table",
+        "reasoning_about_colored_objects",
+        "ruin_names",
+        "salient_translation_error_detection",
+        "snarks",
+        "sports_understanding",
+        "temporal_sequences",
+        "tracking_shuffled_objects_three_objects",
+        "tracking_shuffled_objects_five_objects",
+        "tracking_shuffled_objects_seven_objects",
+        "web_of_lies",
+        "word_sorting",
+    ]
+    for subset in BBH_SUBSETS:
+        # dataset = load_dataset("SaylorTwift/bbh", split=split)
+        dataset = load_dataset("SaylorTwift/bbh", subset, split=split)
+        data = []
+        for i, item in enumerate(dataset):
+            if num_samples and i >= num_samples:
+                break
+            question = item['input']
+            correct_answer = item['target']
+
+            data.append({
+                "prompt": [{"role": "user", "content": question}],
+                "ground_truth": correct_answer,
+                "answer": correct_answer,
+                "data_source": "bbh",
+                "extra_info": {
+                    "metric": "multiple_choice_accuracy",
+                }
+            })
+
+
+        return data
 
 def save_dataset_to_parquet(data: List[Dict], output_path: str, dataset_name: str):
     """Save dataset to parquet format."""
@@ -216,7 +327,7 @@ def main():
     parser.add_argument("--num_samples", type=int, default=None,
                        help="Number of samples to load per dataset (None for all)")
     parser.add_argument("--datasets", nargs="+", 
-                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "all"],
+                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "all"],
                        default=["all"], help="Datasets to prepare")
     
     args = parser.parse_args()
@@ -226,7 +337,7 @@ def main():
     
     datasets_to_load = args.datasets
     if "all" in datasets_to_load:
-        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa","aime24"]
+        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "bbh"]
     
     print(f"Preparing datasets: {datasets_to_load}")
     print(f"Output directory: {args.output_dir}")
@@ -273,7 +384,17 @@ def main():
         print("\nLoading AIME 2024 dataset...")
         aime24_data = load_aime24_dataset(num_samples=args.num_samples)
         save_dataset_to_parquet(aime24_data, args.output_dir, "aime24")
-    
+
+    if "gpqa" in datasets_to_load:
+        print("\nLoading GPQA dataset...")
+        gpqa_data = load_gpqa_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(gpqa_data, args.output_dir, "gpqa")
+
+    if "bbh" in datasets_to_load:
+        print("\nLoading BBH dataset...")
+        bbh_data = load_bbh_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(bbh_data, args.output_dir, "bbh")
+
     print(f"\nAll datasets prepared and saved to {args.output_dir}")
 
 
