@@ -1901,10 +1901,12 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     matches = re.findall(pattern, text, re.DOTALL)
                     return [m.strip() for m in matches]
                 question = extract_question(data_dict.get('generation', '<question></question>'))
-                if question and question[-1] != "[Your Modified Task]":
+                if question and (question[-1] != "[Your Modified Task]") and ("Design a" not in question[-1]):
                     # The exact number depends on the prompt given
                     question = question[-1]
                 else:
+                    if question and "Design a" in question[-1]:
+                        print("[DEBUG] Design type of task find. Falling back.")
                     question = None
                 # First check validity and then add
                 # If validity check not passed, all should be reset

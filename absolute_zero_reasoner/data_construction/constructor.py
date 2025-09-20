@@ -30,6 +30,7 @@ def get_gen_general_io_data(
     tokenizer,  # 不强依赖类型声明，避免导入问题
     weights: List[float] = None,
     include_references: float = 1.0,
+    with_answer_generation: bool = True,
     prompt_manager = None,  # Add prompt manager parameter
 ):
     return_io_data = []
@@ -75,9 +76,9 @@ def get_gen_general_io_data(
             # Use dynamic prompt if prompt_manager is available
         if prompt_manager:
             if include_refs_this_round:
-                instruction_template = prompt_manager.get_proposer_instruction(ref=True)
+                instruction_template = prompt_manager.get_proposer_instruction(ref=True, with_answer_generation=with_answer_generation)
             else:
-                instruction_template = prompt_manager.get_proposer_instruction(ref=False)
+                instruction_template = prompt_manager.get_proposer_instruction(ref=False, with_answer_generation=with_answer_generation)
             print(f"[DEBUG] get_gen_general_io_data: Using dynamic proposer instruction")
         else:
             instruction_template = '{}'

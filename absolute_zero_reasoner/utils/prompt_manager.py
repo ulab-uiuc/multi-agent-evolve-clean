@@ -487,12 +487,18 @@ Your answer should demonstrate that the question is indeed solvable by providing
         
         return self.get_template(template_name)
     
-    def get_proposer_instruction(self, ref: bool) -> str:
+    def get_proposer_instruction(self, ref: bool, with_answer_generation: bool=True) -> str:
         """Get proposer instruction for question generation"""
         if ref:
-            return self.get_template('proposer_with_ref')
+            if with_answer_generation:
+                return self.get_template('proposer_with_ref_with_answer_generation')
+            else:
+                return self.get_template('proposer_with_ref_no_answer_generation')
         else:
-            return self.get_template('proposer_no_ref')
+            if with_answer_generation:
+                return self.get_template('proposer_no_ref_with_answer_generation')
+            else:
+                return self.get_template('proposer_no_ref_no_answer_generation')
     
     def _save_prompt_history(self, step: int):
         """Save prompt history to disk"""

@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="3,5,6,7"
+export CUDA_VISIBLE_DEVICES="3,7"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -26,14 +26,14 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
-    actor_rollout_ref.actor.ppo_mini_batch_size=32 \
-    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=4 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
+    actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.ulysses_sequence_parallel_size=2 \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.model.pretrained_tokenizer=True \
-    +actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=8 \
-    +actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=8 \
+    +actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
+    +actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=vllm \
     actor_rollout_ref.rollout.max_num_batched_tokens=16384 \
@@ -47,8 +47,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion' \
-    trainer.n_gpus_per_node=4 \
+    trainer.experiment_name='general_io_3b_withref_nodesigntask' \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
     trainer.remove_previous_ckpt_in_save=False \
@@ -83,10 +83,10 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=auto \
-    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-14-13_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
+    trainer.resume_mode=disable \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/15-42-30_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion_halfref \
     trainer.total_epochs=30 \
-    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
+    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict_v2.json \
     azr.enable_actor_prompt_optimization=false \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \

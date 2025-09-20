@@ -370,6 +370,301 @@ Choose the correct answer (A, B, C, or D):"""
     return data
 
 
+def load_winogrande_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load WinoGrande dataset from coref-data/winogrande_raw."""
+    dataset = load_dataset("allenai/winogrande", "winogrande_xl", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Format the sentence with the blank
+        sentence = item['sentence']
+        option1 = item['option1']
+        option2 = item['option2']
+        correct_answer = item['answer']  # This is "1" or "2"
+
+        # Create prompt with two options
+        prompt_text = f"""Complete the following sentence by choosing the most appropriate option:
+
+Sentence: {sentence}
+
+Options:
+A. {option1}
+B. {option2}
+
+Choose the correct option (A or B):"""
+
+        # Convert answer to letter format
+        answer_letter = "A" if correct_answer == "1" else "B"
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer_letter,
+            "answer": answer_letter,
+            "data_source": "winogrande",
+            "extra_info": {"metric": "multiple_choice_accuracy"}
+        })
+
+    return data
+
+
+def load_ifeval_dataset(split: str = "train", num_samples: int = None) -> List[Dict]:
+    """Load IFEval dataset for instruction following evaluation."""
+    dataset = load_dataset("google/IFEval", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the prompt and instruction details
+        prompt_text = item['prompt']
+        instruction_id_list = item['instruction_id_list']
+        kwargs = item['kwargs'] if 'kwargs' in item else {}
+
+        # Create a formatted instruction following prompt
+        formatted_prompt = f"""Follow the instructions below carefully:
+
+{prompt_text}
+
+Instructions to follow:
+{', '.join(instruction_id_list)}"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": formatted_prompt}],
+            "ground_truth": "",  # IFEval doesn't have ground truth answers, it's evaluated by instruction compliance
+            "answer": "",  # Will be filled by the model's response
+            "data_source": "ifeval",
+            "extra_info": {
+                "metric": "instruction_following",
+                "instruction_id_list": instruction_id_list,
+                "kwargs": kwargs,
+                "key": item.get('key', i)
+            }
+        })
+
+    return data
+
+
+def load_minerva_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load Minerva math dataset for mathematical reasoning evaluation."""
+    dataset = load_dataset("math-ai/minervamath", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the question and answer
+        question = item['question']
+        answer = item['answer']
+
+        # Create a formatted mathematical reasoning prompt
+        prompt_text = f"""Solve the following mathematical problem step by step:
+
+{question}
+
+Provide your final answer as a numerical value."""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "minerva",
+            "extra_info": {"metric": "math_accuracy"}
+        })
+
+    return data
+
+
+def load_amc_dataset(split: str = "train", num_samples: int = None) -> List[Dict]:
+    """Load AMC dataset from AI-MO/aimo-validation-amc for American Mathematics Competitions evaluation."""
+    dataset = load_dataset("AI-MO/aimo-validation-amc", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the problem and answer
+        problem = item['problem']
+        answer = str(item['answer'])  # Convert to string for consistency
+        problem_url = item.get('url', '')
+
+        # Create a formatted AMC problem prompt
+        prompt_text = f"""Solve the following AMC (American Mathematics Competition) problem step by step:
+
+{problem}
+
+Provide your final answer as a numerical value."""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "amc",
+            "extra_info": {
+                "metric": "math_accuracy",
+                "problem_id": item.get('id', i),
+                "source_url": problem_url
+            }
+        })
+
+    return data
+
+
+def load_olympiad_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load Olympiad dataset from KbsdJames/Omni-MATH for mathematical olympiad evaluation."""
+    dataset = load_dataset("KbsdJames/Omni-MATH", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the problem details
+        problem = item['problem']
+        solution = item.get('solution', '')
+        answer = item['answer']
+        domain = item.get('domain', '')
+        difficulty = item.get('difficulty', 0)
+        source = item.get('source', '')
+
+        # Create a formatted Olympiad problem prompt
+        prompt_text = f"""Solve the following Mathematical Olympiad problem step by step:
+
+{problem}
+
+Provide your final answer clearly."""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "olympiad",
+            "extra_info": {
+                "metric": "math_accuracy",
+                "domain": domain,
+                "difficulty": difficulty,
+                "source": source,
+                "solution": solution
+            }
+        })
+
+    return data
+
+
+def load_livebench_reasoning_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load LiveBench reasoning dataset for logical reasoning evaluation."""
+    dataset = load_dataset("livebench/reasoning", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the reasoning problem details
+        question_id = item.get('question_id', f"question_{i}")
+        category = item.get('category', '')
+        ground_truth = item['ground_truth']
+        turns = item.get('turns', [])
+        task = item.get('task', '')
+        level = item.get('level', 0)
+
+        # Extract the problem from turns (usually the first turn contains the problem)
+        if turns and len(turns) > 0:
+            problem_text = turns[0]
+        else:
+            problem_text = "No problem text available"
+
+        # Create a formatted reasoning problem prompt
+        prompt_text = f"""Solve the following logical reasoning problem step by step:
+
+{problem_text}
+
+Think through the constraints systematically and provide your final answer."""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": ground_truth,
+            "answer": ground_truth,
+            "data_source": "livebench_reasoning",
+            "extra_info": {
+                "metric": "reasoning_accuracy",
+                "question_id": question_id,
+                "category": category,
+                "task": task,
+                "level": level
+            }
+        })
+
+    return data
+
+
+def load_mmlu_pro_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load MMLU-Pro dataset for enhanced multi-task language understanding evaluation."""
+    dataset = load_dataset("TIGER-Lab/MMLU-Pro", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract the problem details
+        question_id = item.get('question_id', i)
+        question = item['question']
+        options = item['options']
+        answer = item['answer']
+        answer_index = item.get('answer_index', 0)
+        category = item.get('category', '')
+        source = item.get('src', '')
+        cot_content = item.get('cot_content', '')
+
+        # Format choices (MMLU-Pro typically has 10 options, labeled A-J)
+        choice_labels = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J']
+        choice_text = "\n".join([f"{choice_labels[j]}. {option}" for j, option in enumerate(options[:len(choice_labels)])])
+
+        # Determine the correct answer letter
+        if answer_index < len(choice_labels):
+            correct_letter = choice_labels[answer_index]
+        else:
+            # Fallback: find the answer in options
+            try:
+                correct_index = options.index(answer)
+                correct_letter = choice_labels[correct_index] if correct_index < len(choice_labels) else 'A'
+            except ValueError:
+                correct_letter = 'A'  # Default fallback
+
+        # Create a formatted MMLU-Pro problem prompt
+        prompt_text = f"""Answer the following multiple choice question from the {category} domain. Think step by step and use chain-of-thought reasoning:
+
+Question: {question}
+
+Choices:
+{choice_text}
+
+Choose the correct answer (A-J):"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": correct_letter,
+            "answer": correct_letter,
+            "data_source": "mmlu_pro",
+            "extra_info": {
+                "metric": "multiple_choice_accuracy",
+                "question_id": question_id,
+                "category": category,
+                "source": source,
+                "cot_content": cot_content,
+                "raw_answer": answer
+            }
+        })
+
+    return data
+
+
 def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
     """Load BBH dataset."""
     BBH_SUBSETS = [
@@ -431,8 +726,8 @@ def main():
                        help="Output directory for validation datasets")
     parser.add_argument("--num_samples", type=int, default=None,
                        help="Number of samples to load per dataset (None for all)")
-    parser.add_argument("--datasets", nargs="+", 
-                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "all"],
+    parser.add_argument("--datasets", nargs="+",
+                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh", "all"],
                        default=["all"], help="Datasets to prepare")
     
     args = parser.parse_args()
@@ -442,7 +737,7 @@ def main():
     
     datasets_to_load = args.datasets
     if "all" in datasets_to_load:
-        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "bbh"]
+        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh"]
     
     print(f"Preparing datasets: {datasets_to_load}")
     print(f"Output directory: {args.output_dir}")
@@ -515,6 +810,41 @@ def main():
         print("\nLoading GPQA dataset...")
         gpqa_data = load_gpqa_dataset(num_samples=args.num_samples)
         save_dataset_to_parquet(gpqa_data, args.output_dir, "gpqa")
+
+    if "winogrande" in datasets_to_load:
+        print("\nLoading WinoGrande dataset...")
+        winogrande_data = load_winogrande_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(winogrande_data, args.output_dir, "winogrande")
+
+    if "ifeval" in datasets_to_load:
+        print("\nLoading IFEval dataset...")
+        ifeval_data = load_ifeval_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(ifeval_data, args.output_dir, "ifeval")
+
+    if "minerva" in datasets_to_load:
+        print("\nLoading Minerva dataset...")
+        minerva_data = load_minerva_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(minerva_data, args.output_dir, "minerva")
+
+    if "amc" in datasets_to_load:
+        print("\nLoading AMC dataset...")
+        amc_data = load_amc_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(amc_data, args.output_dir, "amc")
+
+    if "olympiad" in datasets_to_load:
+        print("\nLoading Olympiad dataset...")
+        olympiad_data = load_olympiad_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(olympiad_data, args.output_dir, "olympiad")
+
+    if "livebench_reasoning" in datasets_to_load:
+        print("\nLoading LiveBench reasoning dataset...")
+        livebench_data = load_livebench_reasoning_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(livebench_data, args.output_dir, "livebench_reasoning")
+
+    if "mmlu_pro" in datasets_to_load:
+        print("\nLoading MMLU-Pro dataset...")
+        mmlu_pro_data = load_mmlu_pro_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(mmlu_pro_data, args.output_dir, "mmlu_pro")
 
     if "bbh" in datasets_to_load:
         print("\nLoading BBH dataset...")
