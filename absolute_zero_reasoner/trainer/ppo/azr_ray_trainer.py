@@ -1210,21 +1210,21 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     )
                 )
                 # Dump question-answer pairs to file
-                if valid_data:
-                    with open('pair_nodesign_withref.txt', 'a') as f:
-                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
-                        for item in valid_data:
-                            if 'question' in item:
-                                f.write(f"Question: {item['question']}\n")
-                                f.write("==============================================\n")
-                            if 'answer' in item:
-                                f.write(f"Answer: {item['answer']}\n")
-                                f.write("==============================================\n")
-                            elif 'generation' in item:
-                                f.write(f"Answer: {item['generation']}\n")
-                                f.write("==============================================\n")
-                            f.write("\n")
-                        f.write("\n")
+                # if valid_data:
+                #     with open('pair_nodesign_halfref.txt', 'a') as f:
+                #         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                #         for item in valid_data:
+                #             if 'question' in item:
+                #                 f.write(f"Question: {item['question']}\n")
+                #                 f.write("==============================================\n")
+                #             if 'answer' in item:
+                #                 f.write(f"Answer: {item['answer']}\n")
+                #                 f.write("==============================================\n")
+                #             elif 'generation' in item:
+                #                 f.write(f"Answer: {item['generation']}\n")
+                #                 f.write("==============================================\n")
+                #             f.write("\n")
+                #         f.write("\n")
             metrics.update(train_metrics)
             batch.batch['token_level_scores'] = reward_tensor
 

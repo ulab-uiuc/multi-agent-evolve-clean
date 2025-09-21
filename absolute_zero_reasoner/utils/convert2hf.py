@@ -5,7 +5,7 @@ from collections import defaultdict
 
 
 def main(
-    fsdp_checkpoint_path, huggingface_model_path, output_path, pretrained_tokenizer=True, world_size=4
+    fsdp_checkpoint_path, huggingface_model_path, output_path, pretrained_tokenizer=True, world_size=2
 ):
     """
     Convert FSDP checkpoint to HuggingFace checkpoint
