@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_7b_withref' \
+    trainer.experiment_name='general_io_7b_halfref' \
     trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
