@@ -1256,6 +1256,64 @@ When you reference your own scores, you do not use the <score> and </score> tags
         normalized_scores = np.round(normalized_scores)
         return normalized_scores.tolist()
 
+    def count_tags(self, text: str, tar: str) -> tuple:
+        """Count given tar tags in the text."""
+        open_count = text.count(f'<{tar}>')
+        close_count = text.count(f'</{tar}>')
+        return open_count, close_count
+    
+    def calc_format_reward(self, data_dicts: List[Dict], problem_type):
+        format_rewards = []
+        for data_dict in data_dicts:
+            response_text = data_dict.get('generation', '')
+            
+            if response_text == "":
+                format_rewards.append(0.5)
+                continue
+            
+            correct_count = 0
+            if problem_type.startswith("judge"):
+                open_tags, close_tags = self.count_tags(response_text, "score")
+                correct_count = 3
+                if open_tags == correct_count and close_tags == correct_count:
+                    tag_score = 1.0
+                elif open_tags == close_tags:
+                    if open_tags > correct_count:
+                        tag_score = 0.5
+                    else:
+                        tag_score = 0.0
+                else:
+                    tag_score = 0.0
+            elif problem_type.startswith("pred"):
+                open_tags, close_tags = self.count_tags(response_text, "answer")
+                correct_count = 2
+                if open_tags == correct_count and close_tags == correct_count:
+                    tag_score = 1.0
+                elif open_tags == close_tags:
+                    if open_tags > correct_count:
+                        tag_score = 0.5
+                    else:
+                        tag_score = 0.0
+                else:
+                    tag_score = 0.0
+            elif problem_type.startswith("gen"):
+                open_tags, close_tags = self.count_tags(response_text, "question")
+                # TODO: for now this part only supports generating without answer generation. However, we can just modify the prompt to enable refinement without answer generation
+                correct_count = 3
+                if open_tags == close_tags:
+                    if open_tags >= correct_count and open_tags <= correct_count + 2:
+                        tag_score = 1.0
+                    elif open_tags > correct_count + 2:
+                        tag_score = 0.5
+                    elif open_tags < correct_count:
+                        tag_score = 0.0
+                else:
+                    tag_score = 0.0
+            
+            format_rewards.append(tag_score)
+
+        return format_rewards
+
     def _get_all_scores(self, data_dicts: List[Dict], rollout_actor_wg, n_samples: int, problem_type: str) -> List[float]:
         """
         Get all scores for both gen and pred.
@@ -1263,51 +1321,18 @@ When you reference your own scores, you do not use the <score> and </score> tags
         
         avg_gen_scores = []
         avg_pred_scores = []
+        format_rewards = []
 
-        if problem_type.startswith("judge"):
-            try:           
-                def count_score_tags(text: str) -> tuple:
-                    """Count <score> and </score> tags in the text."""
-                    score_open_count = text.count('<score>')
-                    score_close_count = text.count('</score>')
-                    return score_open_count, score_close_count
-                
-                # Calculate combined rewards for each response
-                judge_scores = []
-                for data_dict in data_dicts:
-                    # Get the response text from data_dict
-                    response_text = data_dict.get('generation', '')
-                    
-                    if response_text == "":
-                        judge_scores.append(0.5)  # Neutral score for empty responses
-                        continue
-                        
-                    print("response text for judge reward calculation:", response_text)
-                    open_tags, close_tags = count_score_tags(response_text)
-                    
-                    # Perfect score if exactly one <score> and one </score> tag
-                    # Generation has tags for itself already
-                    if open_tags == 3 and close_tags == 3:
-                        tag_score = 1.0
-                    elif open_tags == close_tags:
-                        if open_tags >= 4:
-                            tag_score = 0.5
-                        else:
-                            tag_score = 0.0
-                    else:
-                        tag_score = 0.0
-                    
-                    judge_scores.append(tag_score)
-                
-                avg_gen_scores = judge_scores
-                avg_pred_scores = []  # No pred scores for judge tasks
-                
-            except Exception as e:
-                print(f"Error in judge reward computation: {e}")
-                avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
-                avg_pred_scores = []
+
+        try:                    
+            format_rewards = self.calc_format_reward(data_dicts, problem_type)
             
-            return avg_gen_scores, avg_pred_scores
+        except Exception as e:
+            print(f"Error in format reward computation: {e}")
+            format_rewards = [0.5] * len(data_dicts)
+
+        if problem_type.startswith("judge"):            
+            return avg_gen_scores, avg_pred_scores, format_rewards
         
         if problem_type.startswith("pred"):
             try:
@@ -1316,10 +1341,10 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         avg_pred_scores.append(self._generate_llm_response(self._generate_prompt_for_pred(data_dict, self.infer_together))[0])
                     if self.normalize_scores_in_batch:
                         avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
-                    return avg_gen_scores, avg_pred_scores
+                    return avg_gen_scores, avg_pred_scores, format_rewards
 
                 if rollout_actor_wg is None:
-                    return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+                    return [0.5] * len(data_dicts), [0.5] * len(data_dicts), format_rewards  # Default neutral difficulty score
                 
                 # Build evaluation prompts (one per answer)
                 eval_prompts = []
@@ -1397,7 +1422,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
 
             if self.normalize_scores_in_batch:
                 avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
-            return avg_gen_scores, avg_pred_scores
+            return avg_gen_scores, avg_pred_scores, format_rewards
         
         if problem_type.startswith("gen") and not self.infer_together:
             try:
@@ -1407,7 +1432,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 else:
 
                     if rollout_actor_wg is None:
-                        return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+                        return [0.5] * len(data_dicts), [0.5] * len(data_dicts), format_rewards  # Default neutral difficulty score
 
                     # Build evaluation prompts (one per answer)
                     eval_prompts = []
@@ -1477,7 +1502,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
         # check rollout actor for gen and together problems
         if rollout_actor_wg is None:
             print(f"[DEBUG] rollout_actor_wg is None, returning default scores for problem_type: {problem_type}")
-            return [0.5] * len(data_dicts), [0.5] * len(data_dicts)  # Default neutral difficulty score
+            return [0.5] * len(data_dicts), [0.5] * len(data_dicts), format_rewards  # Default neutral difficulty score
 
         print(f"[DEBUG] rollout_actor_wg is not None, proceeding with actual scoring for problem_type: {problem_type}")
 
@@ -1650,7 +1675,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
             avg_gen_scores = self.normalize_scores_in_batch(avg_gen_scores)
             avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
 
-        return avg_gen_scores, avg_pred_scores
+        return avg_gen_scores, avg_pred_scores, format_rewards
      
     def _generate_llm_response(self, prompt: str) -> List[float]:
         """Call the external LLM for evaluation."""
@@ -1890,7 +1915,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
             
             # Step 1: Get solver average scores and llm scores(possibly) from actor model
             print(f"[DEBUG] Getting all scores for problem_type: {problem_type}, rollout_actor_wg is None: {rollout_actor_wg is None}")
-            llm_scores, solver_avg_scores = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
+            llm_scores, solver_avg_scores, format_rewards = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
             print(f"[DEBUG] Got scores - LLM scores: {llm_scores[:3]}..., Solver avg scores: {solver_avg_scores[:3]}...")
             
             for i, data_dict in enumerate(data_dicts):
@@ -1901,27 +1926,25 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     matches = re.findall(pattern, text, re.DOTALL)
                     return [m.strip() for m in matches]
                 question = extract_question(data_dict.get('generation', '<question></question>'))
-                if question and (question[-1] != "[Your Modified Task]") and not ("Design a" in question[-1] or "Create a" in question[-1]):
-                    # The exact number depends on the prompt given
+                if question:
                     question = question[-1]
                 else:
-                    if question and ("Design a" in question[-1] or "Create a" in question[-1]):
-                        print("[DEBUG] Design type of task find. Falling back.")
                     question = None
                 # First check validity and then add
                 # If validity check not passed, all should be reset
 
                 if question:
                     difficulty_score = 1 - solver_avg_scores[i]
-                    final_score = 0.5 * llm_scores[i] + 0.5 * difficulty_score
+                    final_score = llm_scores[i] / 3 + difficulty_score / 3 + format_rewards[i] / 3
                     
-                    print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, final={final_score:.4f}")
+                    print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, format={format_rewards[i]:.4f}, final={final_score:.4f}")
                     
                     reward_tensor[i, valid_response_length - 1] = final_score
                     all_scores['llm_judge_score'].append(llm_scores[i])
                     all_scores['difficulty_score'].append(difficulty_score)
+                    all_scores['format_reward'].append(format_rewards[i])
                     all_scores['combined_score'].append(final_score)
-                    if llm_scores[i] > 0.3:
+                    if llm_scores[i] >= 0.7:
                         # Only add question to dataset if it is valid
                         # This only works when using strict prompt for evaluating questions
                         valid_data.append({
@@ -1934,26 +1957,27 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     else:
                         # Override scores if not valid
                         # Dump bad question to file
-                        # with open('bad_question2.txt', 'a') as f:
-                        #     f.write(f"Question: {question}\n")
-                        #     f.write("==============================================\n")
-                        #     if 'thought' in data_dict:
-                        #         f.write(f"Thought: {data_dict['thought']}\n")
-                        #         f.write("==============================================\n")
-                        #     if 'generation' in data_dict:
-                        #         f.write(f"Generation: {data_dict['generation']}\n")
-                        #         f.write("==============================================\n")
-                        #     f.write(f"LLM Score: {llm_scores[i]}\n")
-                        #     f.write("==============================================\n")
-                        #     f.write("\n")
+                        with open('bad_question.txt', 'a') as f:
+                            f.write(f"Question: {question}\n")
+                            f.write("==============================================\n")
+                            if 'thought' in data_dict:
+                                f.write(f"Thought: {data_dict['thought']}\n")
+                                f.write("==============================================\n")
+                            if 'generation' in data_dict:
+                                f.write(f"Generation: {data_dict['generation']}\n")
+                                f.write("==============================================\n")
+                            f.write(f"LLM Score: {llm_scores[i]}\n")
+                            f.write("==============================================\n")
+                            f.write("\n")
                         reward_tensor[i, valid_response_length - 1] = llm_scores[i]
                         all_scores['difficulty_score'][-1] = llm_scores[i]
-                        all_scores['combined_score'][-1] = llm_scores[i]
+                        all_scores['combined_score'][-1] = llm_scores[i] / 3 * 2 + format_rewards[i] / 3
                 else:
                     print("Question format failed. Penalized and falling back")
                     reward_tensor[i, valid_response_length - 1] = 0.0
                     all_scores['llm_judge_score'].append(0.0)
                     all_scores['difficulty_score'].append(0.0)
+                    all_scores['format_reward'].append(0.0)
                     all_scores['combined_score'].append(0.0)
 
             all_scores['solver_avg_scores'] = solver_avg_scores
@@ -1961,13 +1985,13 @@ When you reference your own scores, you do not use the <score> and </score> tags
             PrettyPrinter.section_header("Computing Prediction Rewards for GeneralIO Tasks")
             
             llm_scores = []
-            _, llm_scores = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
+            _, llm_scores, format_rewards = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
             
             for i, data_dict in enumerate(data_dicts):
                 valid_response_length = data_dict['valid_response_length']
                 
                 if self.split == 'train':
-                    reward_tensor[i, valid_response_length - 1] = llm_scores[i]
+                    reward_tensor[i, valid_response_length - 1] = 0.5 * llm_scores[i] + 0.5 * format_rewards[i]
                     valid_data.append({
                         'question': data_dict.get('question', ''),
                         'answer': data_dict.get('answer', ''),
@@ -1978,7 +2002,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         'uid': data_dict['uid'],
                     })
                 elif self.split == 'test':
-                    reward_tensor[i, valid_response_length - 1] = llm_scores[i]
+                    reward_tensor[i, valid_response_length - 1] = 0.5 * llm_scores[i] + 0.5 * format_rewards[i]
                     # test split pairs not saved
                     # valid_data.append({
                     #     'question': data_dict.get('question', ''),
@@ -1988,18 +2012,19 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     # })
                 
                 all_scores['llm_judge_score'].append(llm_scores[i])
+                all_scores['format_reward'].append(format_rewards[i])
             
             all_scores['accuracy'] = all_scores['llm_judge_score']  # For compatibility
         elif problem_type.startswith("judge"):
             PrettyPrinter.section_header("Computing Judge Rewards for GeneralIO Tasks")
 
-            rewards, _ = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
+            _, _, format_rewards = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
 
             for i, data_dict in enumerate(data_dicts):
                 valid_response_length = data_dict['valid_response_length']
-                reward_tensor[i, valid_response_length - 1] = rewards[i]
+                reward_tensor[i, valid_response_length - 1] = format_rewards[i]
 
-            all_scores['format_reward'] = rewards  # Default neutral score for judge tasks
+            all_scores['format_reward'] = format_rewards  # Default neutral score for judge tasks
         else:
             # For other cases or when rollout_actor_wg is None
             PrettyPrinter.section_header("Computing Default Rewards for GeneralIO Tasks")

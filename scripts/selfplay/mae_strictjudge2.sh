@@ -20,10 +20,10 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     data.val_files=data/code_reason/test_answer.parquet \
     data.train_batch_size=16 \
     data.val_batch_size=512 \
-    data.max_prompt_length=6144 \
+    data.max_prompt_length=4096 \
     data.max_validation_prompt_length=6144 \
-    data.max_response_length=8096 \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    data.max_response_length=4096 \
+    actor_rollout_ref.model.path=/data/yidingw/checkpoints/LoRA128-Qwen3B-1000seeddata-3epochs \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=8 \
@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_trainjudge_rejectbadquestion_noref' \
+    trainer.experiment_name='general_io_3b_noref' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
@@ -83,10 +83,10 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=auto \
+    trainer.resume_mode=disable \
     +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-32-05_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_trainjudge_rejectbadquestion_noref \
     trainer.total_epochs=30 \
-    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
+    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict_v2.json \
     azr.enable_actor_prompt_optimization=false \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \

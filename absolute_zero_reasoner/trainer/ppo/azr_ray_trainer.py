@@ -1186,7 +1186,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump questions to file
                 if valid_data:
-                    with open('question_nodesign_withref.txt', 'a') as f:
+                    with open(f'question_{self.config.trainer.experiment_name}.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             f.write(f"Question: {item['question']}\n")
@@ -1210,21 +1210,21 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     )
                 )
                 # Dump question-answer pairs to file
-                # if valid_data:
-                #     with open('pair_nodesign_halfref.txt', 'a') as f:
-                #         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
-                #         for item in valid_data:
-                #             if 'question' in item:
-                #                 f.write(f"Question: {item['question']}\n")
-                #                 f.write("==============================================\n")
-                #             if 'answer' in item:
-                #                 f.write(f"Answer: {item['answer']}\n")
-                #                 f.write("==============================================\n")
-                #             elif 'generation' in item:
-                #                 f.write(f"Answer: {item['generation']}\n")
-                #                 f.write("==============================================\n")
-                #             f.write("\n")
-                #         f.write("\n")
+                if valid_data:
+                    with open(f'pair_{self.config.trainer.experiment_name}.txt', 'a') as f:
+                        f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
+                        for item in valid_data:
+                            if 'question' in item:
+                                f.write(f"Question: {item['question']}\n")
+                                f.write("==============================================\n")
+                            if 'answer' in item:
+                                f.write(f"Answer: {item['answer']}\n")
+                                f.write("==============================================\n")
+                            elif 'generation' in item:
+                                f.write(f"Answer: {item['generation']}\n")
+                                f.write("==============================================\n")
+                            f.write("\n")
+                        f.write("\n")
             metrics.update(train_metrics)
             batch.batch['token_level_scores'] = reward_tensor
 
@@ -1395,6 +1395,12 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         if self.config.trainer.val_only:
             PrettyPrinter.status("INFO", "Validation only mode enabled, exiting after validation", "info")
             return
+
+        # Run warm-up training if enabled and we're starting from scratch
+        if self.global_steps == 0 and getattr(self.config.azr, 'warm_up_training', {}).get('enabled', False):
+            PrettyPrinter.section_header("Starting Warm-up Training")
+            self._run_warmup_training(logger)
+            PrettyPrinter.status("SUCCESS", "Warm-up training completed", "success")
 
         if self.loaded_datasets:
             PrettyPrinter.section_header(f"Resuming training from checkpoint")

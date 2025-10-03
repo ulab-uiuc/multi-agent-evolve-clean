@@ -6,14 +6,14 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="5,6"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
-    +benchmark_names="['mmlu', 'math', 'gsm8k', 'truthfulqa', 'arc_challenge','arc_easy', 'gpqa', 'bbh']" \
-    +benchmark_max_samples=500 \
+    +benchmark_names="['mmlu', 'math', 'gsm8k', 'truthfulqa', 'arc_challenge', 'gpqa', 'bbh']" \
+    +benchmark_max_samples=200 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
     algorithm.adv_estimator=reinforce_plus_plus \
@@ -86,8 +86,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
     trainer.resume_mode=resume_path \
-    +trainer.resume_path=/mnt/disk1_from_server2/yidingw/cyx/checkpoints/general/2025-09-17/15-42-30_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion_halfref \
-    trainer.resume_from_path=/mnt/disk1_from_server2/yidingw/cyx/checkpoints/general/2025-09-17/15-42-30_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion_halfref/general_io/Qwen2.5-3B-Instruct/boxed/global_step_275 \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-24/20-46-02_general_io_reasoning_general_io_3b_halfref_no_solver \
+    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-09-24/20-46-02_general_io_reasoning_general_io_3b_halfref_no_solver/general_io/Qwen2.5-3B-Instruct/boxed/global_step_75 \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \

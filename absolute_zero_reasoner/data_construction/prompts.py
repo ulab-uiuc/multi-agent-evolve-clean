@@ -463,7 +463,7 @@ def get_general_generation_with_reference_prompt(
             ground_truth = reward_model['ground_truth']
         else:
             ground_truth = "N/A"
-        reference_questions_string += f"<question>\n{question['question']}\n</question>\n\n Ground Truth Answer: {ground_truth}\n\n"
+        reference_questions_string += f"\n{question['question']}\n\n Ground Truth Answer: {ground_truth}\n\n"
 
     return general_generation_based_on_reference_prompt + "\n### Reference Questions:\n" + reference_questions_string
 # "\n### Your Task:\nCreate a Challenging and Modified Version of the Reference Task. Remember to structure your response in the specified format.\n\n---\n\n### Output Template:\n```<think>\n[Your reasoning about the task]\n</think>\n\n<question>\n[Your modified task]\n</question>\n\n<answer>\n[Your complete solution to verify the task is solvable]\n</answer>```"
