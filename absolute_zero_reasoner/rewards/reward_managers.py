@@ -1271,7 +1271,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 format_rewards.append(0.5)
                 continue
             
-            correct_count = 0
             if problem_type.startswith("judge"):
                 open_tags, close_tags = self.count_tags(response_text, "score")
                 correct_count = 3
@@ -1286,7 +1285,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     tag_score = 0.0
             elif problem_type.startswith("pred"):
                 open_tags, close_tags = self.count_tags(response_text, "answer")
-                correct_count = 2
+                correct_count = 1
                 if open_tags == correct_count and close_tags == correct_count:
                     tag_score = 1.0
                 elif open_tags == close_tags:
@@ -1297,18 +1296,50 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 else:
                     tag_score = 0.0
             elif problem_type.startswith("gen"):
-                open_tags, close_tags = self.count_tags(response_text, "question")
-                # TODO: for now this part only supports generating without answer generation. However, we can just modify the prompt to enable refinement without answer generation
+                tag_scores = []
+                open_tags_question, close_tags_question = self.count_tags(response_text, "question")
+                open_tags_answer, close_tags_answer = self.count_tags(response_text, "answer")
+                open_tags_type, close_tags_type = self.count_tags(response_text, "type")
+                # TODO: for now this part only supports generating with answer generation. However, we can just modify the prompt to enable refinement without answer generation
+                
                 correct_count = 3
-                if open_tags == close_tags:
-                    if open_tags >= correct_count and open_tags <= correct_count + 2:
-                        tag_score = 1.0
-                    elif open_tags > correct_count + 2:
-                        tag_score = 0.5
-                    elif open_tags < correct_count:
-                        tag_score = 0.0
+                if open_tags_question == close_tags_question:
+                    if open_tags_question >= correct_count and open_tags_question <= correct_count + 2:
+                        question_tag_score = 1.0
+                    elif open_tags_question > correct_count + 2:
+                        question_tag_score = 0.5
+                    elif open_tags_question < correct_count:
+                        question_tag_score = 0.0
                 else:
-                    tag_score = 0.0
+                    question_tag_score = 0.0
+
+                correct_count = 2
+                if open_tags_answer == close_tags_answer:
+                    if open_tags_answer == 0:
+                        answer_tag_score = None
+                    elif open_tags_answer + 1 == open_tags_question:
+                        answer_tag_score = 1.0
+                    else:
+                        answer_tag_score = 0.0
+                else:
+                    answer_tag_score = 0.0
+
+                correct_count = 1
+                if open_tags_type == close_tags_type:
+                    if open_tags_type == 0:
+                        # Prompt has no type, then there is no need for type format reward
+                        type_tag_score = None
+                    elif open_tags_type == correct_count:
+                        type_tag_score = 1.0
+                    elif open_tags_type > correct_count:
+                        type_tag_score = 0.5
+                else:
+                    type_tag_score = 0.0
+
+                tag_scores.append(question_tag_score)
+                tag_scores.append(answer_tag_score) if answer_tag_score else None
+                tag_scores.append(type_tag_score) if type_tag_score else None
+                tag_score = np.average(tag_scores)
             
             format_rewards.append(tag_score)
 
@@ -1969,9 +2000,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
                             f.write(f"LLM Score: {llm_scores[i]}\n")
                             f.write("==============================================\n")
                             f.write("\n")
-                        reward_tensor[i, valid_response_length - 1] = llm_scores[i]
-                        all_scores['difficulty_score'][-1] = llm_scores[i]
-                        all_scores['combined_score'][-1] = llm_scores[i] / 3 * 2 + format_rewards[i] / 3
+                        reward_tensor[i, valid_response_length - 1] = llm_scores[i] / 3 + format_rewards[i] / 3
+                        all_scores['difficulty_score'][-1] = 0
+                        all_scores['combined_score'][-1] = llm_scores[i] / 3 + format_rewards[i] / 3
                 else:
                     print("Question format failed. Penalized and falling back")
                     reward_tensor[i, valid_response_length - 1] = 0.0

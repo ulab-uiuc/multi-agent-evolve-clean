@@ -1095,6 +1095,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         batch = batch.repeat(repeat_times=self.config.actor_rollout_ref.rollout.n, interleave=True)
         batch = batch.union(gen_batch_output)
 
+        batch.batch["response_mask"] = compute_response_mask(batch)
         # balance the number of valid tokens on each dp rank
         self._balance_batch(batch, metrics=metrics)
 
@@ -1104,6 +1105,13 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         # recompute old_log_probs
         with _timer(f'old_log_prob/{problem_type}', timing_raw):
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+            entropys = old_log_prob.batch["entropys"]
+            response_masks = batch.batch["response_mask"]
+            loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
+            entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+            old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
+            metrics.update(old_log_prob_metrics)
+            old_log_prob.batch.pop("entropys")
             batch = batch.union(old_log_prob)
 
         if self.use_reference_policy:

@@ -6,14 +6,14 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="5,6,7,8"
+export CUDA_VISIBLE_DEVICES="5,6"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
-    +benchmark_names="['truthfulqa', 'bbh', 'livebench_reasoning', 'amc']" \
-    +benchmark_max_samples=400 \
+    +benchmark_names="['truthfulqa', 'bbh', 'livebench_reasoning', 'amc', 'minerva', 'winogrande', 'olympiad', 'mmlu_pro']" \
+    +benchmark_max_samples=1000 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
     algorithm.adv_estimator=reinforce_plus_plus \
@@ -21,9 +21,9 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     data.val_files=data/code_reason/test_answer.parquet \
     data.train_batch_size=16 \
     data.val_batch_size=512 \
-    data.max_prompt_length=4096 \
+    data.max_prompt_length=8192 \
     data.max_validation_prompt_length=6144 \
-    data.max_response_length=4096 \
+    data.max_response_length=8192 \
     actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
@@ -49,7 +49,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
     trainer.experiment_name='eval_half_ref_275' \
-    trainer.n_gpus_per_node=4 \
+    trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=25 \
     trainer.remove_previous_ckpt_in_save=False \
@@ -80,14 +80,14 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.reward.generation_reward_config.include_references=1 \
     azr.reward.generation_reward_config.generation_accuracy_convertion=inverse \
     azr.reward.generation_reward_config.answer_diversity_reward.hierarchical=false \
-    azr.data_selection_strategy.content_max_length=4096 \
+    azr.data_selection_strategy.content_max_length=8192 \
     azr.data_selection_strategy.max_questions=10000 \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=resume_path \
-    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-14-13_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion \
-    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-09-17/00-14-13_general_io_reasoning_general_io_3b_withref_16-8bs_valfirst_n1_self_judge_seperate_withanswergeneration_trainjudge_rejectbadquestion/general_io/Qwen2.5-3B-Instruct/boxed/global_step_200 \
+    trainer.resume_mode=disable \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-04/01-32-57_general_io_reasoning_general_io_3b_noref_new_prompt_good_question_only_format_for_all \
+    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-04/01-32-57_general_io_reasoning_general_io_3b_noref_new_prompt_good_question_only_format_for_all/general_io/Qwen2.5-3B-Instruct/boxed/global_step_200 \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \
