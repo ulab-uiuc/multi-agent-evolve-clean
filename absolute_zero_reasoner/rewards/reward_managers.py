@@ -1337,8 +1337,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     type_tag_score = 0.0
 
                 tag_scores.append(question_tag_score)
-                tag_scores.append(answer_tag_score) if answer_tag_score else None
-                tag_scores.append(type_tag_score) if type_tag_score else None
+                tag_scores.append(answer_tag_score) if answer_tag_score is not None else None
+                tag_scores.append(type_tag_score) if type_tag_score is not None else None
                 tag_score = np.average(tag_scores)
             
             format_rewards.append(tag_score)
@@ -1965,7 +1965,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 # If validity check not passed, all should be reset
 
                 if question:
-                    difficulty_score = 1 - solver_avg_scores[i]
+                    # difficulty_score = 1 - solver_avg_scores[i]
+                    difficulty_score = int(solver_avg_scores[i] < 0.7) # strict version for difficulty_score
                     final_score = llm_scores[i] / 3 + difficulty_score / 3 + format_rewards[i] / 3
                     
                     print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, format={format_rewards[i]:.4f}, final={final_score:.4f}")

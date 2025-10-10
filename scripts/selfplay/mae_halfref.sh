@@ -47,13 +47,15 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_entropy_test' \
+    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test_debug' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \
     trainer.remove_previous_ckpt_in_save=False \
     trainer.del_local_ckpt_after_load=True \
     trainer.test_freq=50 \
+    trainer.debug=True \
+    trainer.debug_port=1234 \
     +trainer.val_before_train=false \
     reward_fn.extraction_type=boxed \
     reward_fn.math_metric=deepscaler \
@@ -69,7 +71,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.update_iteration=1 \
     azr.pretrain_pred_steps=-1 \
     azr.problem_types=['general'] \
-    azr.pred_data_mix_strategy=half_new \
+    azr.pred_data_mix_strategy=uniform_total \
     +azr.judge_data_mix_strategy=uniform_total \
     +azr.train_judge=True \
     azr.train_propose=True \
