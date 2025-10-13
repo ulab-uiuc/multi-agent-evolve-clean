@@ -18,7 +18,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     algorithm.adv_estimator=reinforce_plus_plus \
     data.train_files=data/code_reason/test_answer.parquet \
     data.val_files=data/code_reason/test_answer.parquet \
-    data.train_batch_size=16 \
+    data.train_batch_size=64 \
     data.val_batch_size=512 \
     data.max_prompt_length=8192 \
     data.max_validation_prompt_length=6144 \
@@ -47,15 +47,13 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test_debug' \
+    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_discrete_reward' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \
     trainer.remove_previous_ckpt_in_save=False \
     trainer.del_local_ckpt_after_load=True \
-    trainer.test_freq=50 \
-    trainer.debug=True \
-    trainer.debug_port=1234 \
+    trainer.test_freq=25 \
     +trainer.val_before_train=false \
     reward_fn.extraction_type=boxed \
     reward_fn.math_metric=deepscaler \
@@ -74,6 +72,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.pred_data_mix_strategy=uniform_total \
     +azr.judge_data_mix_strategy=uniform_total \
     +azr.train_judge=True \
+    +azr.with_answer_generation=False \
     azr.train_propose=True \
     azr.reward.n_samples=5 \
     azr.reward.generation_reward_config.format_reward=false \

@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_noref_new_prompt_good_question_only_format_for_all_v4_prompt' \
+    trainer.experiment_name='general_io_3b_noref_new_prompt_good_question_only_format_for_all_v4_prompt_discrete_reward' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \
@@ -83,6 +83,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
+    +azr.with_answer_generation=False \
     trainer.resume_mode=disable \
     +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-09-23/18-29-23_general_io_reasoning_general_io_3b_halfref_from_sft \
     trainer.total_epochs=30 \

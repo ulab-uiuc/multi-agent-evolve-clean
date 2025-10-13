@@ -86,8 +86,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
     trainer.resume_mode=resume_path \
-    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt \
-    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt/general_io/Qwen2.5-3B-Instruct/boxed/global_step_350 \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-09/23-42-38_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test \
+    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-09/23-42-38_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test/general_io/Qwen2.5-3B-Instruct/boxed/global_step_150 \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \
