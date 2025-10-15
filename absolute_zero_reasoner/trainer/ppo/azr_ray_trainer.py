@@ -1111,6 +1111,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
             old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
             metrics.update(old_log_prob_metrics)
+            old_log_prob_metrics = {f"actor/{problem_type}/entropy": entropy_agg.detach().item()}
+            metrics.update(old_log_prob_metrics)
             old_log_prob.batch.pop("entropys")
             batch = batch.union(old_log_prob)
 

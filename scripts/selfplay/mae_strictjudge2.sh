@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_noref_new_prompt_good_question_only_format_for_all_v4_prompt_discrete_reward' \
+    trainer.experiment_name='general_io_3b_noref_new_prompt_good_question_only_format_for_all_v4' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \

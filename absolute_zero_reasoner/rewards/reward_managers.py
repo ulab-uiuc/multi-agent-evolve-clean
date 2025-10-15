@@ -1344,14 +1344,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
             format_rewards.append(tag_score)
 
         return format_rewards
-    
-    def process_scores(self, scores):
-        for idx, score in enumerate(scores):
-            if score > 0.7:
-                scores[idx] = 1.0
-            elif score < 0.3:
-                scores[idx] = 0.0
-        return scores
 
     def _get_all_scores(self, data_dicts: List[Dict], rollout_actor_wg, n_samples: int, problem_type: str) -> List[float]:
         """
@@ -1395,7 +1387,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     })
 
                 # Optionally repeat judgments (n_samples) if desired
-                eval_prompts = eval_prompts * 3 # could multiply by another factor if multi-judging needed
+                eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
                 # [TODO] Add n_samples here maybe
 
                 temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
@@ -1461,8 +1453,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
 
             if self.normalize_scores_in_batch:
                 avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
-                
-            avg_pred_scores = self.process_scores(avg_pred_scores)
             return avg_gen_scores, avg_pred_scores, format_rewards
         
         if problem_type.startswith("gen") and not self.infer_together:
@@ -1485,7 +1475,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         })
 
                     # Optionally repeat judgments (n_samples) if desired
-                    eval_prompts = eval_prompts * 3 # could multiply by another factor if multi-judging needed
+                    eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
 
                     temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
                     pd.DataFrame(eval_prompts).to_parquet(temp_judge_file)
@@ -1539,8 +1529,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
             except Exception as e:
                 print(f"Error in gen score computation: {e}")
                 avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
-            
-            avg_gen_scores = self.process_scores(avg_gen_scores)
 
         # check rollout actor for gen and together problems
         if rollout_actor_wg is None:
@@ -1619,7 +1607,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         })
 
                 # Optionally repeat judgments (n_samples) if desired
-                eval_prompts = eval_prompts * 3  # could multiply by another factor if multi-judging needed
+                eval_prompts = eval_prompts  # could multiply by another factor if multi-judging needed
 
                 temp_judge_file = f'{self.output_path}/temp_generalio_judge.parquet'
                 pd.DataFrame(eval_prompts).to_parquet(temp_judge_file)
@@ -1657,7 +1645,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 for data_dict in data_dicts:
                     uid = data_dict['uid']
                     if uid2_a_scores.get(uid):
-                        avg_pred_scores.append(float(np.mean(self.process_scores(uid2_a_scores[uid]))))
+                        avg_pred_scores.append(float(np.mean(uid2_a_scores[uid])))
                     else:
                         avg_pred_scores.append(0.5)
                     if self.infer_together:
@@ -1978,6 +1966,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
 
                 if question:
                     difficulty_score = 1 - solver_avg_scores[i]
+                    # difficulty_score = int(solver_avg_scores[i] < 0.7) # strict version for difficulty_score
                     final_score = llm_scores[i] / 3 + difficulty_score / 3 + format_rewards[i] / 3
                     
                     print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, format={format_rewards[i]:.4f}, final={final_score:.4f}")

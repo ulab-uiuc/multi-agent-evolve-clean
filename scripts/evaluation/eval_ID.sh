@@ -6,13 +6,13 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="8,9"
+export CUDA_VISIBLE_DEVICES="5,8"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
     --config-name=azr_ppo_trainer_general \
     track_benchmarks=true \
-    +benchmark_names="['mmlu', 'math', 'gsm8k', 'truthfulqa', 'arc_challenge', 'gpqa']" \
+    +benchmark_names="['mmlu', 'math', 'gsm8k', 'arc_challenge', 'gpqa']" \
     +benchmark_max_samples=500 \
     data.shuffle=True \
     actor_rollout_ref.ref.include_ref=False \
@@ -86,8 +86,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
     trainer.resume_mode=resume_path \
-    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-09/23-42-38_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test \
-    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-09/23-42-38_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_strict_difficulty_test/general_io/Qwen2.5-3B-Instruct/boxed/global_step_150 \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt \
+    trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt/general_io/Qwen2.5-3B-Instruct/boxed/global_step_800 \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict.json \
     azr.enable_actor_prompt_optimization=false \

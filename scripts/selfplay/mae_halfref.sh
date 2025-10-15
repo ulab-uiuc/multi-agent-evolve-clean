@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="4,7"
+export CUDA_VISIBLE_DEVICES="2,3"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -18,7 +18,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     algorithm.adv_estimator=reinforce_plus_plus \
     data.train_files=data/code_reason/test_answer.parquet \
     data.val_files=data/code_reason/test_answer.parquet \
-    data.train_batch_size=64 \
+    data.train_batch_size=16 \
     data.val_batch_size=512 \
     data.max_prompt_length=8192 \
     data.max_validation_prompt_length=6144 \
@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt_discrete_reward' \
+    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \
@@ -84,8 +84,8 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=disable \
-    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-04/04-37-05_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v2_prompt \
+    trainer.resume_mode=auto \
+    +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt \
     trainer.total_epochs=30 \
     +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict_v4.json \
     azr.enable_actor_prompt_optimization=false \
