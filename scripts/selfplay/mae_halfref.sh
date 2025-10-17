@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="2,3"
+export CUDA_VISIBLE_DEVICES="0,1"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -47,7 +47,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='general_io_reasoning' \
-    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt' \
+    trainer.experiment_name='general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v5_prompt' \
     trainer.n_gpus_per_node=2 \
     trainer.nnodes=1 \
     trainer.save_freq=50 \
@@ -84,11 +84,11 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=resume_path \
+    trainer.resume_mode=disable \
     +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt \
     trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt/general_io/Qwen2.5-3B-Instruct/boxed/global_step_650 \
     trainer.total_epochs=30 \
-    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict_v4.json \
+    +prompt_manager.template_file=absolute_zero_reasoner/data_construction/Initial_prompt_templates/strict_v5.json \
     azr.enable_actor_prompt_optimization=false \
     azr.prompt_optimization.frequency=1 \
     azr.prompt_optimization.accuracy_threshold=0.3 \
