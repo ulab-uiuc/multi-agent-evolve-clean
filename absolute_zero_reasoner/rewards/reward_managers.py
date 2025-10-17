@@ -2090,6 +2090,7 @@ def evaluate_single_item(args):
             max_retries=5
         )
         
+        question = item_data['question']
         model_answer = item_data['model_answer']
         ground_truth = item_data['ground_truth']
         metric_type = item_data['metric_type']
@@ -2097,6 +2098,8 @@ def evaluate_single_item(args):
         # Generate evaluation prompt
         if metric_type == "math_accuracy":
             prompt = f"""Please evaluate whether the following mathematical answer is correct.
+
+Question: {question}
 
 Ground Truth Answer: {ground_truth}
 
@@ -2122,6 +2125,8 @@ Then determine if the model's answer is correct:
 
         elif metric_type == "multiple_choice_accuracy":
             prompt = f"""Please evaluate whether the multiple choice answer is correct.
+            
+Question: {question}
 
 Correct Answer: {ground_truth}
 
@@ -2145,6 +2150,8 @@ Then determine if the model's answer is correct:
 
         elif metric_type == "truthfulness_accuracy":
             prompt = f"""Please evaluate the truthfulness and accuracy of the answer.
+
+Question: {question}
 
 Ground Truth Answer: {ground_truth}
 
@@ -2170,6 +2177,8 @@ Then determine if the model's answer is truthful and accurate:
         else:
             # General accuracy evaluation
             prompt = f"""Please evaluate whether the answer is correct based on the ground truth answer.
+
+Question: {question}
 
 Ground Truth Answer: {ground_truth}
 
@@ -2436,6 +2445,7 @@ Then determine if the model's answer is correct:
         
         # Look for final answer patterns
         patterns = [
+            r"<answer>(.*?)</answer>",
             r"(?:the answer is|answer:|final answer:)\s*(.+?)(?:\n|$)",
             r"(?:therefore|thus|so),?\s*(.+?)(?:\n|$)",
             r"\$\$(.+?)\$\$",  # LaTeX math
@@ -2497,7 +2507,7 @@ Then determine if the model's answer is correct:
                     
                     # Extract information
                     prompt_data = data_item.non_tensor_batch.get('prompt', [])
-                    question = self._get_question_from_prompt(prompt_data)
+                    question = data_item.non_tensor_batch.get('question', '')
                     ground_truth = data_item.non_tensor_batch.get('answer', '')
                     data_source = data_item.non_tensor_batch.get('data_source', 'unknown')
                     extra_info = data_item.non_tensor_batch.get('extra_info', {})
@@ -2507,7 +2517,16 @@ Then determine if the model's answer is correct:
                     response_ids = data_item.batch['responses']
                     generation = self.tokenizer.decode(response_ids, skip_special_tokens=True)
                     model_answer = self._extract_model_answer(generation)
-                    
+
+                    # Dump question and answer for evaluation
+                    with open('evaluation_qa_pairs_OOD_sft.txt', 'a') as f:
+                        f.write(f"Question: {question}\n")
+                        f.write(f"Model Generation: {generation}\n")
+                        f.write(f"Model Answer: {model_answer}\n")
+                        f.write(f"Ground Truth: {ground_truth}\n")
+                        f.write(f"Data Source: {data_source}\n")
+                        f.write("-" * 80 + "\n")
+
                     # Store item info for later processing
                     valid_response_length = data_item.batch['attention_mask'][len(data_item.batch['prompts']):].sum()
                     item_info.append({
@@ -2523,6 +2542,7 @@ Then determine if the model's answer is correct:
                     # Prepare task for multiprocessing
                     task_data = {
                         'index': i,
+                        'question': question,
                         'model_answer': model_answer,
                         'ground_truth': ground_truth,
                         'metric_type': metric_type

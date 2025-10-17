@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="5,8"
+export CUDA_VISIBLE_DEVICES="7,8"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \
@@ -24,7 +24,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     data.max_prompt_length=8192 \
     data.max_validation_prompt_length=6144 \
     data.max_response_length=8192 \
-    actor_rollout_ref.model.path=Qwen/Qwen2.5-3B-Instruct \
+    actor_rollout_ref.model.path=/mnt/disk1_from_server1/yidingw/checkpoints/LoRA128-Qwen3B-1000seeddata-3epochs \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.ppo_mini_batch_size=32 \
@@ -85,7 +85,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     azr.data_selection_strategy.valid_question_filter=all \
     azr.data_selection_strategy.batched_estimate=false \
     azr.data_selection_strategy.io_n=1 \
-    trainer.resume_mode=resume_path \
+    trainer.resume_mode=disable \
     +trainer.resume_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt \
     trainer.resume_from_path=/data/yidingw/cyx/checkpoints/general/2025-10-08/02-52-43_general_io_reasoning_general_io_3b_halfref_new_prompt_good_question_only_format_for_all_v4_prompt/general_io/Qwen2.5-3B-Instruct/boxed/global_step_800 \
     trainer.total_epochs=30 \

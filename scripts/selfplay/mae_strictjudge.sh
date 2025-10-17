@@ -6,7 +6,7 @@ export VLLM_ATTENTION_BACKEND=FLASH_ATTN
 export RAY_memory_monitor_refresh_ms=0
 export RAY_LOGGING_LEVEL=DEBUG
 export HYDRA_FULL_ERROR=1
-export CUDA_VISIBLE_DEVICES="8,9"
+export CUDA_VISIBLE_DEVICES="4,5"
 export NCCL_P2P_DISABLE=1
 
 python -m absolute_zero_reasoner.main_azr_ppo \

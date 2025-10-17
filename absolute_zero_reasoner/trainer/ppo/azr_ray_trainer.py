@@ -1105,15 +1105,38 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         # recompute old_log_probs
         with _timer(f'old_log_prob/{problem_type}', timing_raw):
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-            entropys = old_log_prob.batch["entropys"]
+            entropys_original = old_log_prob.batch["entropys"]
+
+            # Calculate entropy aggregation with original scale for metrics logging
             response_masks = batch.batch["response_mask"]
             loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
-            entropy_agg = agg_loss(loss_mat=entropys, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
-            old_log_prob_metrics = {"actor/entropy": entropy_agg.detach().item()}
+            entropy_agg_original = agg_loss(loss_mat=entropys_original, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
+
+            # Log metrics with original entropy values (unscaled)
+            old_log_prob_metrics = {"actor/entropy": entropy_agg_original.detach().item()}
             metrics.update(old_log_prob_metrics)
-            old_log_prob_metrics = {f"actor/{problem_type}/entropy": entropy_agg.detach().item()}
+            old_log_prob_metrics = {f"actor/{problem_type}/entropy": entropy_agg_original.detach().item()}
             metrics.update(old_log_prob_metrics)
-            old_log_prob.batch.pop("entropys")
+
+            # Get role-specific entropy coefficient based on problem_type
+            role_entropy_coefficients = {
+                'gen_general': self.config.azr.get('proposer_entropy_coeff', None),
+                'pred_general': self.config.azr.get('solver_entropy_coeff', None),
+                'judge_general': self.config.azr.get('judge_entropy_coeff', None)
+            }
+
+            # Use role-specific coefficient if available, otherwise fall back to default
+            if problem_type in role_entropy_coefficients and role_entropy_coefficients[problem_type] is not None:
+                entropy_coeff = role_entropy_coefficients[problem_type]
+            else:
+                # Fall back to default entropy coefficient from actor config
+                entropy_coeff = self.config.actor_rollout_ref.actor.entropy_coeff
+
+            # Store the entropy coefficient in meta_info for the actor to use
+            old_log_prob.meta_info['entropy_coeff'] = entropy_coeff
+
+            # Keep entropys in the batch (don't pop it) so actor can use it
+            # old_log_prob.batch.pop("entropys")  # Comment out - keep entropy for actor
             batch = batch.union(old_log_prob)
 
         if self.use_reference_policy:

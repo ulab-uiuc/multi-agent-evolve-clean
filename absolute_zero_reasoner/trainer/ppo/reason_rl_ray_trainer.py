@@ -3,6 +3,8 @@ from typing import Optional
 from copy import deepcopy
 from collections import defaultdict
 from typing import Dict, List, Optional
+import json
+import os
 
 from omegaconf import OmegaConf, open_dict
 import torch
@@ -434,15 +436,25 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                 max_tokens=500
             )
             
+            # Load strict_v4.json solver template
+            template_path = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                "data_construction/Initial_prompt_templates/strict_v4.json"
+            )
+            with open(template_path, 'r') as f:
+                templates = json.load(f)
+            solver_template = templates['templates']['solver']['base_template']
+
             # Create benchmark dataset with per-benchmark sampling
             max_samples_per_benchmark = self.config.get('benchmark_max_samples', DEFAULT_BENCHMARK_CONFIG['max_samples_per_benchmark'])
-            
+
             print(f"Loading benchmarks with max {max_samples_per_benchmark} samples per benchmark:")
-            
+            print(f"Using strict_v4.json solver template for prompt construction")
+
             # Collect individual benchmark datasets with proper sampling
             benchmark_datasets = []
             total_samples = 0
-            
+
             for benchmark_file in benchmark_files:
                 try:
                     # Load single benchmark dataset
@@ -452,7 +464,7 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                         prompt_key=self.config.data.prompt_key,
                         max_prompt_length=self.config.data.get('max_validation_prompt_length', 8192),
                         filter_prompts=True,
-                        return_raw_chat=self.config.data.get('return_raw_chat', False),
+                        return_raw_chat=True,  # Need raw chat to extract questions
                         truncation='error',
                         extra_source_key=f"benchmark_{benchmark_file.split('/')[-1].split('.')[0]}"
                     )
@@ -485,9 +497,72 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
             
             # Combine all benchmark datasets
             if benchmark_datasets:
-                benchmark_dataset = torch.utils.data.ConcatDataset(benchmark_datasets)
+                base_dataset = torch.utils.data.ConcatDataset(benchmark_datasets)
                 print(f"Total benchmark samples: {total_samples}")
-                
+
+                # Create wrapper dataset class to apply solver template
+                class SolverTemplateDataset(torch.utils.data.Dataset):
+                    def __init__(self, base_dataset, template, tokenizer, config):
+                        self.base_dataset = base_dataset
+                        self.template = template
+                        self.tokenizer = tokenizer
+                        self.config = config
+
+                    def __len__(self):
+                        return len(self.base_dataset)
+
+                    def __getitem__(self, idx):
+                        item = self.base_dataset[idx]
+
+                        # Check if we have raw_prompt (chat messages)
+                        if 'raw_prompt' in item and item['raw_prompt'] is not None:
+                            chat_messages = item['raw_prompt']
+
+                            # Extract the question from chat messages
+                            question = None
+                            for msg in chat_messages:
+                                if isinstance(msg, dict) and msg.get('role') == 'user':
+                                    question = msg.get('content', '')
+                                    break
+
+                            if question:
+                                print(f"[Benchmark] Embedding question in strict_v4 solver template")
+                                # Combine template with question
+                                full_prompt = f"{self.template}\n\nUser: {question}\nAssistant: <think>"
+
+                                # Re-tokenize with the new prompt
+                                prompt_with_chat_template = self.tokenizer.apply_chat_template(
+                                    [{"role": "user", "content": full_prompt}],
+                                    add_generation_prompt=True,
+                                    tokenize=False
+                                )
+
+                                # Re-tokenize and update item
+                                import verl.utils.torch_functional as verl_F
+                                from verl.utils.model import compute_position_id_with_mask
+
+                                input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
+                                    prompt=prompt_with_chat_template,
+                                    tokenizer=self.tokenizer,
+                                    max_length=self.config.data.get('max_validation_prompt_length', 8192),
+                                    pad_token_id=self.tokenizer.pad_token_id,
+                                    left_pad=True,
+                                    truncation='error'
+                                )
+
+                                position_ids = compute_position_id_with_mask(attention_mask)
+
+                                # Update the item with new tokenization
+                                item['input_ids'] = input_ids[0]
+                                item['attention_mask'] = attention_mask[0]
+                                item['position_ids'] = position_ids[0]
+                                item['question'] = question
+
+                        return item
+
+                # Wrap the concatenated dataset with the solver template
+                benchmark_dataset = SolverTemplateDataset(base_dataset, solver_template, self.tokenizer, self.config)
+
                 self.benchmark_dataloader = DataLoader(
                     dataset=benchmark_dataset,
                     batch_size=min(len(benchmark_dataset), 100),  # Use reasonable batch size
