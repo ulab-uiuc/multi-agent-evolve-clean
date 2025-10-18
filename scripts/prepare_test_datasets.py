@@ -665,6 +665,237 @@ Choose the correct answer (A-J):"""
     return data
 
 
+def load_commonsenseqa_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load CommonsenseQA dataset for commonsense reasoning evaluation."""
+    dataset = load_dataset("tau/commonsense_qa", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract question and answer choices
+        question = item['question']
+        choices = item['choices']['text']
+        labels = item['choices']['label']
+        answer_key = item['answerKey']
+
+        # Format choices
+        choice_text = "\n".join([f"{label}. {choice}" for label, choice in zip(labels, choices)])
+
+        # Create a formatted commonsense reasoning prompt
+        prompt_text = f"""Answer the following commonsense reasoning question:
+
+Question: {question}
+
+Choices:
+{choice_text}
+
+Choose the correct answer:"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer_key,
+            "answer": answer_key,
+            "data_source": "commonsenseqa",
+            "extra_info": {"metric": "multiple_choice_accuracy"}
+        })
+
+    return data
+
+
+def load_openbookqa_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
+    """Load OpenBookQA dataset for open book question answering."""
+    dataset = load_dataset("allenai/openbookqa", "main", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract question and choices
+        question_stem = item['question_stem']
+        choices = item['choices']['text']
+        labels = item['choices']['label']
+        answer_key = item['answerKey']
+
+        # Format choices
+        choice_text = "\n".join([f"{label}. {choice}" for label, choice in zip(labels, choices)])
+
+        # Create a formatted OpenBookQA prompt
+        prompt_text = f"""Answer the following science question that requires reasoning with basic facts:
+
+Question: {question_stem}
+
+Choices:
+{choice_text}
+
+Choose the correct answer:"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer_key,
+            "answer": answer_key,
+            "data_source": "openbookqa",
+            "extra_info": {"metric": "multiple_choice_accuracy"}
+        })
+
+    return data
+
+
+def load_naturalquestions_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load Natural Questions dataset for open domain question answering."""
+    # Use the NQ-Open dataset which is a simplified version
+    dataset = load_dataset("nq_open", split=split if split != "test" else "validation")
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract question and answer
+        question = item['question']
+        # NQ-Open has a list of acceptable answers
+        answers = item['answer'] if isinstance(item['answer'], list) else [item['answer']]
+        answer = answers[0] if answers else ""
+
+        if not answer:
+            continue
+
+        prompt_text = f"""Answer the following question concisely:
+
+Question: {question}
+
+Provide a brief, factual answer:"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "naturalquestions",
+            "extra_info": {
+                "metric": "exact_match",
+                "all_answers": answers  # Store all acceptable answers
+            }
+        })
+
+    return data
+
+
+def load_triviaqa_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load TriviaQA dataset for trivia question answering."""
+    dataset = load_dataset("mandarjoshi/trivia_qa", "rc", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract question and answer
+        question = item['question']
+        # TriviaQA has multiple possible answers, we'll use the first one
+        answer = item['answer']['value'] if item['answer'] else ""
+
+        prompt_text = f"""Answer the following trivia question:
+
+Question: {question}
+
+Provide a brief, factual answer:"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "triviaqa",
+            "extra_info": {
+                "metric": "exact_match",
+                "aliases": item['answer']['aliases'] if item['answer'] else []
+            }
+        })
+
+    return data
+
+
+def load_squad_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load SQuAD v2 dataset for reading comprehension."""
+    dataset = load_dataset("squad_v2", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract context, question and answer
+        context = item['context']
+        question = item['question']
+
+        # Check if the question is answerable
+        # SQuAD v2 has both answerable and unanswerable questions
+        if item['answers'] and item['answers'].get('text'):
+            answers = item['answers']['text']
+            answer = answers[0] if answers else ""
+        else:
+            # Skip unanswerable questions for simplicity
+            continue
+
+        if not answer:
+            continue
+
+        prompt_text = f"""Read the following passage and answer the question based on it.
+
+Context: {context}
+
+Question: {question}
+
+Answer:"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "squad",
+            "extra_info": {
+                "metric": "exact_match",
+                "all_answers": answers if 'answers' in locals() else [answer]
+            }
+        })
+
+    return data
+
+
+def load_boolq_dataset(split: str = "validation", num_samples: int = None) -> List[Dict]:
+    """Load BoolQ dataset for yes/no question answering."""
+    dataset = load_dataset("google/boolq", split=split)
+
+    data = []
+    for i, item in enumerate(dataset):
+        if num_samples and i >= num_samples:
+            break
+
+        # Extract passage, question and answer
+        passage = item['passage']
+        question = item['question']
+        answer = "yes" if item['answer'] else "no"
+
+        prompt_text = f"""Read the following passage and answer the yes/no question.
+
+Passage: {passage}
+
+Question: {question}
+
+Answer with only 'yes' or 'no':"""
+
+        data.append({
+            "prompt": [{"role": "user", "content": prompt_text}],
+            "ground_truth": answer,
+            "answer": answer,
+            "data_source": "boolq",
+            "extra_info": {"metric": "exact_match"}
+        })
+
+    return data
+
+
 def load_bbh_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
     """Load BBH dataset."""
     BBH_SUBSETS = [
@@ -727,7 +958,7 @@ def main():
     parser.add_argument("--num_samples", type=int, default=None,
                        help="Number of samples to load per dataset (None for all)")
     parser.add_argument("--datasets", nargs="+",
-                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh", "all"],
+                       choices=["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh", "commonsenseqa", "openbookqa", "naturalquestions", "triviaqa", "squad", "boolq", "all"],
                        default=["all"], help="Datasets to prepare")
     
     args = parser.parse_args()
@@ -737,7 +968,7 @@ def main():
     
     datasets_to_load = args.datasets
     if "all" in datasets_to_load:
-        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh"]
+        datasets_to_load = ["math", "gsm8k", "hellaswag", "mmlu", "arc", "truthfulqa", "aime24", "gpqa", "winogrande", "ifeval", "minerva", "amc", "olympiad", "livebench_reasoning", "mmlu_pro", "bbh", "commonsenseqa", "openbookqa", "naturalquestions", "triviaqa", "squad", "boolq"]
     
     print(f"Preparing datasets: {datasets_to_load}")
     print(f"Output directory: {args.output_dir}")
@@ -754,10 +985,10 @@ def main():
         gsm8k_data = load_gsm8k_dataset(num_samples=args.num_samples)
         save_dataset_to_parquet(gsm8k_data, args.output_dir, "gsm8k")
     
-    # if "hellaswag" in datasets_to_load:
-    #     print("\nLoading HellaSwag dataset...")
-    #     hellaswag_data = load_hellaswag_dataset(num_samples=args.num_samples)
-    #     save_dataset_to_parquet(hellaswag_data, args.output_dir, "hellaswag")
+    if "hellaswag" in datasets_to_load:
+        print("\nLoading HellaSwag dataset...")
+        hellaswag_data = load_hellaswag_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(hellaswag_data, args.output_dir, "hellaswag")
     
     if "mmlu" in datasets_to_load:
         print("\nLoading MMLU dataset (all subjects)...")
@@ -850,6 +1081,36 @@ def main():
         print("\nLoading BBH dataset...")
         bbh_data = load_bbh_dataset(num_samples=args.num_samples)
         save_dataset_to_parquet(bbh_data, args.output_dir, "bbh")
+
+    if "commonsenseqa" in datasets_to_load:
+        print("\nLoading CommonsenseQA dataset...")
+        commonsenseqa_data = load_commonsenseqa_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(commonsenseqa_data, args.output_dir, "commonsenseqa")
+
+    if "openbookqa" in datasets_to_load:
+        print("\nLoading OpenBookQA dataset...")
+        openbookqa_data = load_openbookqa_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(openbookqa_data, args.output_dir, "openbookqa")
+
+    if "naturalquestions" in datasets_to_load:
+        print("\nLoading Natural Questions dataset...")
+        naturalquestions_data = load_naturalquestions_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(naturalquestions_data, args.output_dir, "naturalquestions")
+
+    if "triviaqa" in datasets_to_load:
+        print("\nLoading TriviaQA dataset...")
+        triviaqa_data = load_triviaqa_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(triviaqa_data, args.output_dir, "triviaqa")
+
+    if "squad" in datasets_to_load:
+        print("\nLoading SQuAD dataset...")
+        squad_data = load_squad_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(squad_data, args.output_dir, "squad")
+
+    if "boolq" in datasets_to_load:
+        print("\nLoading BoolQ dataset...")
+        boolq_data = load_boolq_dataset(num_samples=args.num_samples)
+        save_dataset_to_parquet(boolq_data, args.output_dir, "boolq")
 
     print(f"\nAll datasets prepared and saved to {args.output_dir}")
 

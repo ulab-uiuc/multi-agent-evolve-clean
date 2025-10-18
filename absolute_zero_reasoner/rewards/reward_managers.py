@@ -2519,13 +2519,13 @@ Then determine if the model's answer is correct:
                     model_answer = self._extract_model_answer(generation)
 
                     # Dump question and answer for evaluation
-                    with open('evaluation_qa_pairs_OOD_sft.txt', 'a') as f:
-                        f.write(f"Question: {question}\n")
-                        f.write(f"Model Generation: {generation}\n")
-                        f.write(f"Model Answer: {model_answer}\n")
-                        f.write(f"Ground Truth: {ground_truth}\n")
-                        f.write(f"Data Source: {data_source}\n")
-                        f.write("-" * 80 + "\n")
+                    # with open('evaluation_qa_pairs_dump.txt', 'a') as f:
+                    #     f.write(f"Question: {question}\n")
+                    #     f.write(f"Model Generation: {generation}\n")
+                    #     f.write(f"Model Answer: {model_answer}\n")
+                    #     f.write(f"Ground Truth: {ground_truth}\n")
+                    #     f.write(f"Data Source: {data_source}\n")
+                    #     f.write("-" * 80 + "\n")
 
                     # Store item info for later processing
                     valid_response_length = data_item.batch['attention_mask'][len(data_item.batch['prompts']):].sum()
