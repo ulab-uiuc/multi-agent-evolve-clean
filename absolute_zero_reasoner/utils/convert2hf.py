@@ -5,7 +5,7 @@ from collections import defaultdict
 
 
 def main(
-    fsdp_checkpoint_path, huggingface_model_path, output_path, pretrained_tokenizer=True, world_size=2
+    fsdp_checkpoint_path, huggingface_model_path, output_path, pretrained_tokenizer=True, world_size=8
 ):
     """
     Convert FSDP checkpoint to HuggingFace checkpoint
@@ -24,7 +24,7 @@ def main(
     for rank in range(int(world_size)):
         filepath = f"{fsdp_checkpoint_path}/model_world_size_{world_size}_rank_{rank}.pt"
         print("loading", filepath)
-        this_state_dict = torch.load(filepath)
+        this_state_dict = torch.load(filepath,weights_only=False)
         for key, value in this_state_dict.items():
             state_dict[key].append(value.to_local())
 

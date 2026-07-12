@@ -25,7 +25,6 @@ from verl.trainer.ppo.ray_trainer import Role, WorkerType, ResourcePoolManager
 from verl.utils.tracking import ValidationGenerationsLogger
 
 from absolute_zero_reasoner.utils.dataset.rl_dataset import RLHFDataset
-from absolute_zero_reasoner.utils.benchmark_tracker import BenchmarkTracker
 
 
 def compute_dr_grpo_outcome_advantage(token_level_rewards: torch.Tensor,
@@ -231,7 +230,7 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
             AdvantageEstimator.OPO,
             AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
         ]:
-            self.use_critic = False
+            self.use_critic = False 
         else:
             raise NotImplementedError
 
@@ -243,29 +242,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
         self.benchmark_dataloader = None
         if self._is_general_task():
             self._setup_benchmark_evaluation()
-        
-        # Initialize benchmark tracker for validation tracking
-        self.benchmark_tracker = None
-        if config.get('track_benchmarks', False):
-            # Try to get output_dir from various config locations
-            tracker_output_dir = None
-            if hasattr(config, 'benchmark_tracker') and hasattr(config.benchmark_tracker, 'output_dir'):
-                tracker_output_dir = config.benchmark_tracker.output_dir
-            elif hasattr(config, 'trainer') and hasattr(config.trainer, 'output_dir'):
-                tracker_output_dir = config.trainer.output_dir
-            else:
-                # Fallback to default directory
-                tracker_output_dir = "./outputs/benchmark_tracking"
-            
-            print(f"[DEBUG] Initializing BenchmarkTracker with output_dir: {tracker_output_dir}")
-            self.benchmark_tracker = BenchmarkTracker(
-                output_dir=tracker_output_dir,
-                config=config
-            )
-            print(f"[DEBUG] BenchmarkTracker initialized successfully")
-        else:
-            print(f"[DEBUG] BenchmarkTracker disabled (track_benchmarks={config.get('track_benchmarks', False)})")
-
 
     def _validate_config(self):
         config = self.config
@@ -428,28 +404,25 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
             
             print(f"Setting up benchmark evaluation with files: {benchmark_files}")
             
-            # Create benchmark reward manager
-            self.benchmark_reward_fn = BenchmarkEvaluationRewardManager(
-                tokenizer=self.tokenizer,
-                model_name=self.config.get('azr.benchmark_eval_model', "meta/llama-3.1-405b-instruct"),
-                temperature=0.0,
-                max_tokens=500
-            )
+            self.benchmark_reward_fn = None
+            self.benchmark_dataloader = None
             
-            # Load strict_v4.json solver template
-            template_path = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
-                "data_construction/Initial_prompt_templates/strict_v4.json"
-            )
-            with open(template_path, 'r') as f:
-                templates = json.load(f)
+            template_path = self.config.prompt_manager.get('template_file', 'absolute_zero_reasoner/data_construction/initial_prompt_templates/default.json')
+            try:
+                with open(template_path, 'r') as f:
+                    templates = json.load(f)
+            except Exception as e:
+                template_path = 'absolute_zero_reasoner/data_construction/initial_prompt_templates/default.json'
+                print("Template path not found, falling back")
+                
             solver_template = templates['templates']['solver']['base_template']
+            print("Template used for benchmark evaluation:", solver_template)
 
             # Create benchmark dataset with per-benchmark sampling
             max_samples_per_benchmark = self.config.get('benchmark_max_samples', DEFAULT_BENCHMARK_CONFIG['max_samples_per_benchmark'])
 
             print(f"Loading benchmarks with max {max_samples_per_benchmark} samples per benchmark:")
-            print(f"Using strict_v4.json solver template for prompt construction")
+            print(f"Using {template_path} solver template for prompt construction")
 
             # Collect individual benchmark datasets with proper sampling
             benchmark_datasets = []
@@ -457,7 +430,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
 
             for benchmark_file in benchmark_files:
                 try:
-                    # Load single benchmark dataset
                     single_benchmark_dataset = RLHFDataset(
                         parquet_files=[benchmark_file],
                         tokenizer=self.tokenizer,
@@ -526,7 +498,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                                     break
 
                             if question:
-                                print(f"[Benchmark] Embedding question in strict_v4 solver template")
                                 # Combine template with question
                                 full_prompt = f"{self.template}\n\nUser: {question}\nAssistant: <think>"
 
@@ -537,7 +508,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                                     tokenize=False
                                 )
 
-                                # Re-tokenize and update item
                                 import verl.utils.torch_functional as verl_F
                                 from verl.utils.model import compute_position_id_with_mask
 
@@ -560,7 +530,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
 
                         return item
 
-                # Wrap the concatenated dataset with the solver template
                 benchmark_dataset = SolverTemplateDataset(base_dataset, solver_template, self.tokenizer, self.config)
 
                 self.benchmark_dataloader = DataLoader(
@@ -617,7 +586,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                 
                 batch = DataProto.from_single_dict(batch_data)
                 
-                # Generate responses
                 gen_batch = batch.pop(['input_ids', 'attention_mask', 'position_ids'])
                 gen_batch.meta_info = {
                     'eos_token_id': self.tokenizer.eos_token_id,
@@ -627,68 +595,17 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
                     'validate': True,
                 }
                 
-                # Pad and generate
                 gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, self.actor_rollout_wg.world_size)
                 output_gen_batch_padded = self.actor_rollout_wg.generate_sequences(gen_batch_padded)
                 output_gen_batch = unpad_dataproto(output_gen_batch_padded, pad_size=pad_size)
                 
-                # Combine batch with generated outputs
                 batch = batch.union(output_gen_batch)
                 
-                # Store generated outputs for tracking
                 output_ids = batch.batch['responses']
                 output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-                
-                # Collect benchmark tracking data if tracker is enabled
-                if self.benchmark_tracker is not None:
-                    print(f"[DEBUG] _run_benchmark_evaluation: Collecting tracking data from {len(batch)} items")
-                    for i, data_item in enumerate(batch):
-                        question = ""
-                        ground_truth = ""
-                        data_source = data_item.non_tensor_batch.get('data_source', 'benchmark_unknown')
-                        
-                        # Extract question and ground truth based on data structure
-                        if 'prompt' in data_item.non_tensor_batch:
-                            prompt_data = data_item.non_tensor_batch['prompt']
-                            
-                            # Handle numpy array case - convert to python list
-                            if hasattr(prompt_data, 'tolist'):
-                                prompt_data = prompt_data.tolist()
-                            elif hasattr(prompt_data, 'item'):
-                                prompt_data = prompt_data.item()
-                            
-                            if isinstance(prompt_data, list) and len(prompt_data) > 0:
-                                first_prompt = prompt_data[0]
-                                # Handle nested numpy array case
-                                if hasattr(first_prompt, 'tolist'):
-                                    first_prompt = first_prompt.tolist()
-                                elif hasattr(first_prompt, 'item'):
-                                    first_prompt = first_prompt.item()
-                                
-                                if isinstance(first_prompt, dict):
-                                    question = first_prompt.get('content', '')
-                                else:
-                                    question = str(first_prompt) if first_prompt else ''
-                        
-                        if 'answer' in data_item.non_tensor_batch:
-                            ground_truth = data_item.non_tensor_batch['answer']
-                        elif 'reward_model' in data_item.non_tensor_batch:
-                            ground_truth = data_item.non_tensor_batch['reward_model'].get('ground_truth', '')
-                        
-                        model_answer = output_texts[i] if i < len(output_texts) else ""
-                        
-                        all_questions.append(question)
-                        all_model_answers.append(model_answer)
-                        all_ground_truths.append(ground_truth)
-                        all_data_sources.append(data_source)
-                
+
                 # Evaluate using benchmark reward manager
                 reward_tensor, metrics = self.benchmark_reward_fn(batch)
-                
-                # Store scores for tracking
-                scores = reward_tensor.sum(-1).cpu().tolist()
-                if self.benchmark_tracker is not None:
-                    all_scores.extend(scores)
                 
                 reward_tensor_lst.append(reward_tensor)
                 for k, v in metrics.items():
@@ -697,42 +614,6 @@ class ReasonRLRayPPOTrainer(RayPPOTrainer):
             if batch_count == 0:
                 pp.status("BENCHMARK", "No batches found in benchmark dataloader", "warning")
                 return {}
-            
-            # Record benchmark results if tracker is enabled
-            if self.benchmark_tracker is not None and len(all_questions) > 0:
-                print(f"[DEBUG] _run_benchmark_evaluation: Recording results for {len(all_questions)} items at step {self.global_steps}")
-                
-                # Group data by benchmark
-                benchmark_data = defaultdict(list)
-                for i in range(len(all_questions)):
-                    benchmark_name = all_data_sources[i]
-                    benchmark_data[benchmark_name].append({
-                        'question': all_questions[i],
-                        'model_answer': all_model_answers[i],
-                        'ground_truth': all_ground_truths[i],
-                        'score': all_scores[i],
-                        'is_correct': all_scores[i] > 0.5  # Threshold for correctness
-                    })
-                
-                # Record results for each benchmark
-                for benchmark_name, data_list in benchmark_data.items():
-                    questions = [item['question'] for item in data_list]
-                    model_answers = [item['model_answer'] for item in data_list]
-                    ground_truths = [item['ground_truth'] for item in data_list]
-                    scores = [item['score'] for item in data_list]
-                    is_correct = [item['is_correct'] for item in data_list]
-                    
-                    accuracy = np.mean(is_correct) if is_correct else 0.0
-                    
-                    self.benchmark_tracker.record_validation_results(
-                        step=self.global_steps,
-                        benchmark_name=benchmark_name,
-                        questions=questions,
-                        model_answers=model_answers,
-                        ground_truths=ground_truths,
-                        scores=scores,
-                        accuracy=accuracy
-                    )
             
             # Aggregate metrics
             final_metrics = {}

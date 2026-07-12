@@ -1,0 +1,755 @@
+{
+  "metadata": {
+    "num_samples": 16,
+    "source": "FusionBench",
+    "dataset_config": "ulab-ai/FusionBench",
+    "split": "train",
+    "seed": 42,
+    "default_data_dir": "fixed_datasets",
+    "extraction_date": "1758165901.5881944",
+    "description": "Random subset of 16 samples from fixed_fusionbench_1000.json (seed=42) for half-ref training",
+    "source_file": "data/fixed_datasets/fixed_fusionbench_1000.json",
+    "source_indices": [
+      25,
+      89,
+      104,
+      114,
+      142,
+      228,
+      250,
+      281,
+      558,
+      604,
+      654,
+      692,
+      754,
+      758,
+      759,
+      913
+    ]
+  },
+  "examples": [
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following question.          Question: Three snails raced across a rain-soaked sidewalk.  The first snail raced at a speed of 2 feet per minute.  The second snail raced at twice the speed of the first snail.  And the third snail traveled at five times the rate of speed as the second snail.  If it took the first snail 20 minutes to race all the way up the sidewalk, how long, in minutes, did it take for the third snail to race all the way up the sidewalk?         Let's think step by step         "
+        }
+      ],
+      "question": "         Answer the following question.          Question: Three snails raced across a rain-soaked sidewalk.  The first snail raced at a speed of 2 feet per minute.  The second snail raced at twice the speed of the first snail.  And the third snail traveled at five times the rate of speed as the second snail.  If it took the first snail 20 minutes to race all the way up the sidewalk, how long, in minutes, did it take for the third snail to race all the way up the sidewalk?         Let's think step by step         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "If the first snail traveled the distance in 20 minutes, then the second snail, traveling at twice the rate of speed, would take 20/2=<<20/2=10>>10 minutes to complete the race. If the third snail raced at five times the speed of the second snail, then it would take the third snail 10/5=<<10/5=2>>2 minutes to race all the way up the sidewalk. #### 2"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 0,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 25
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question. Your answer must be True or False.                 ## Context:                 Captain America: Reborn is a six-issue (originally intended to be five issues) monthly comic book limited series published by Marvel Comics between July 2009 and January 2010. The series was written by Ed Brubaker, illustrated by Bryan Hitch, and inked by Butch Guice. The series reveals the truth regarding the death of the original Captain America, Steve Rogers (as told in the story arc The Death of Captain America) and revives him in the contemporary Marvel Universe.                  ## Question:                 does captain america come back to life in the comics                 "
+        }
+      ],
+      "question": " Use the following context to answer the question. Your answer must be True or False.                 ## Context:                 Captain America: Reborn is a six-issue (originally intended to be five issues) monthly comic book limited series published by Marvel Comics between July 2009 and January 2010. The series was written by Ed Brubaker, illustrated by Bryan Hitch, and inked by Butch Guice. The series reveals the truth regarding the death of the original Captain America, Steve Rogers (as told in the story arc The Death of Captain America) and revives him in the contemporary Marvel Universe.                  ## Question:                 does captain america come back to life in the comics                 ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "True"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 1,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 89
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following question. Make sure to put the answer ( and only answer ) inside \\\\\\\\\\\\\\\\boxed{}.          Question: How many degrees are in the measure of the smaller angle formed by the hour and minute hands of a clock when the time is 7 p.m.?         Let's think step by step         "
+        }
+      ],
+      "question": "         Answer the following question. Make sure to put the answer ( and only answer ) inside \\\\\\\\\\\\\\\\boxed{}.          Question: How many degrees are in the measure of the smaller angle formed by the hour and minute hands of a clock when the time is 7 p.m.?         Let's think step by step         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "[asy] unitsize(0.8inch); for (int i=0 ; i<=11 ;++i) { draw((rotate(i*30)*(0.8,0)) -- (rotate(i*30)*(1,0))); label(format(\"%d\",i+1),(rotate(60 - i*30)*(0.68,0))); } draw(Circle((0,0),1),linewidth(1.1)); draw((0,0.7)--(0,0)--(rotate(-120)*(0.5,0)),linewidth(1.2)); [/asy]  There are 12 hours on a clock, so each hour mark is $360^\\\\\\\\\\\\\\\\circ/12 = 30^\\\\\\\\\\\\\\\\circ$ from its neighbors.  At 7:00, the minute hand points at the 12, while the hour hand points at hour 7.  So, the hands are 5 \"hours\" apart, which means that the angle between the hands is $5\\\\\\\\\\\\\\\\cdot 30^\\\\\\\\\\\\\\\\circ = \\\\\\\\\\\\\\\\boxed{150^\\\\\\\\\\\\\\\\circ}$."
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 2,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 104
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question. Your answer must be True or False.                         ## Context:                         A toddler is a child 12 to 36 months old. The toddler years are a time of great cognitive, emotional and social development. The word is derived from ``to toddle'', which means to walk unsteadily, like a child of this age.                          ## Question:                         is a 2 year old still considered a baby                          Let's think step by step.                         "
+        }
+      ],
+      "question": " Use the following context to answer the question. Your answer must be True or False.                         ## Context:                         A toddler is a child 12 to 36 months old. The toddler years are a time of great cognitive, emotional and social development. The word is derived from ``to toddle'', which means to walk unsteadily, like a child of this age.                          ## Question:                         is a 2 year old still considered a baby                          Let's think step by step.                         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "False"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 3,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 114
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Chopping wood: A man is seen standing before a large log holding an ax in his hands. He holds the ax up over his head while still looking down at the log. He            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) throws the ax down with his feet behind his head and continues using it back and fourth until it is broken in half. (B) turns around and slowly raises his ax up in the air. (C) continues chopping the wood while looking up to the camera. (D) swing the ax down and chops the log in half."
+        }
+      ],
+      "question": "         Context: Chopping wood: A man is seen standing before a large log holding an ax in his hands. He holds the ax up over his head while still looking down at the log. He            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) throws the ax down with his feet behind his head and continues using it back and fourth until it is broken in half. (B) turns around and slowly raises his ax up in the air. (C) continues chopping the wood while looking up to the camera. (D) swing the ax down and chops the log in half.",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 4,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 142
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Which of these will reduce the gravitational force between two objects the most?            (A) halving the distance between them (B) doubling the distance between them (C) halving the distance between them and doubling their mass (D) doubling the distance between them and halving their mass"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Which of these will reduce the gravitational force between two objects the most?            (A) halving the distance between them (B) doubling the distance between them (C) halving the distance between them and doubling their mass (D) doubling the distance between them and halving their mass",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 5,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 228
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A single night of taking the drug Ecstasy   can cause serious brain damage and speed up the start of Parkinson's disease , scientists say. Just two or three Ecstasy tablets can permanently destroy brain cells that affect movement and reasoning, according to American research that links the drug to Parkinson's for the first time. A study by a team at Johns Hopkins University in Baltimore, Maryland, involving squirrel monkeys and baboons   found that both species suffered permanent damage to key cells, which are lost in Parkinson's, after receiving three low doses of Ecstasy at three-hour periods. The study is particularly important because baboons are one of the best animal models for the human brain. George Ricaurte, who led the research, said that the widespread abuse of drug might have caused severe damage. \"The most troubling result is that young adults using Ecstasy may be increasing their risk of developing Parkinsonism as they get older.\" Alan Leshner, a former director of the US National Institute on Drug Abuse, said, \"This study emphasizes the multi-aspect damage that Ecstasy causes to users. We've long known that repeated use damages brain cells. But this study shows that even very occasional  use can have long-lasting effects on many different brain systems. It sends an important message to young people: don't experiment with your own brain.\" Janet Betts, a mother whose teenage daughter Leah died after a single Ecstasy tablet in 1995, said, \"This comes as no surprise. But people can't see the effects at first, and they say it won't happen to them. We'll see the symptoms later, just as we have with smoking.\" The article is intended to   _  .  ## Options: A. explain the bad effects of drugs on people's health B. warn young people of the risk of taking the drug Ecstasy C. persuade people out of such bad habits as smoking and using drugs D. tell us the links between the drug Ecstasy and the animal models   Let's think step by step."
+        }
+      ],
+      "question": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A single night of taking the drug Ecstasy   can cause serious brain damage and speed up the start of Parkinson's disease , scientists say. Just two or three Ecstasy tablets can permanently destroy brain cells that affect movement and reasoning, according to American research that links the drug to Parkinson's for the first time. A study by a team at Johns Hopkins University in Baltimore, Maryland, involving squirrel monkeys and baboons   found that both species suffered permanent damage to key cells, which are lost in Parkinson's, after receiving three low doses of Ecstasy at three-hour periods. The study is particularly important because baboons are one of the best animal models for the human brain. George Ricaurte, who led the research, said that the widespread abuse of drug might have caused severe damage. \"The most troubling result is that young adults using Ecstasy may be increasing their risk of developing Parkinsonism as they get older.\" Alan Leshner, a former director of the US National Institute on Drug Abuse, said, \"This study emphasizes the multi-aspect damage that Ecstasy causes to users. We've long known that repeated use damages brain cells. But this study shows that even very occasional  use can have long-lasting effects on many different brain systems. It sends an important message to young people: don't experiment with your own brain.\" Janet Betts, a mother whose teenage daughter Leah died after a single Ecstasy tablet in 1995, said, \"This comes as no surprise. But people can't see the effects at first, and they say it won't happen to them. We'll see the symptoms later, just as we have with smoking.\" The article is intended to   _  .  ## Options: A. explain the bad effects of drugs on people's health B. warn young people of the risk of taking the drug Ecstasy C. persuade people out of such bad habits as smoking and using drugs D. tell us the links between the drug Ecstasy and the animal models   Let's think step by step.",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 6,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 250
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A common approximation made in many-body nuclear calculations of some interaction (for example an electroweak interaction) is to suppose that nucleons in a nucleus behave in the same way as free nucleons. Which of the following four assumptions jointly imply this \"\"impulse\"\" approximation?  1. The interaction current only interacts with individual nucleons. 2. The nucleus is transparent apart from the selected nucleon. 3. The quarks internal to the selected nucleon are non-relativistic. 4. The interaction proceeds as if the selected nucleon experiences no binding forces.  ## Options: A. 1,2,3 B. 1,2,4 C. 1,3,4 D. 2,3,4   Let's think step by step."
+        }
+      ],
+      "question": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A common approximation made in many-body nuclear calculations of some interaction (for example an electroweak interaction) is to suppose that nucleons in a nucleus behave in the same way as free nucleons. Which of the following four assumptions jointly imply this \"\"impulse\"\" approximation?  1. The interaction current only interacts with individual nucleons. 2. The nucleus is transparent apart from the selected nucleon. 3. The quarks internal to the selected nucleon are non-relativistic. 4. The interaction proceeds as if the selected nucleon experiences no binding forces.  ## Options: A. 1,2,3 B. 1,2,4 C. 1,3,4 D. 2,3,4   Let's think step by step.",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 7,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 281
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Mark's semen was very thick, but after his vasectomy it was also what?            (A) blank (B) sparse (C) thin (D) clear (E) free flowing  Let's think step by step"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Mark's semen was very thick, but after his vasectomy it was also what?            (A) blank (B) sparse (C) thin (D) clear (E) free flowing  Let's think step by step",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 8,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 558
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         Carolina suffered a major setback when Thomas Davis, an 11-year veteran who had already overcome three ACL tears in his career, went down with a broken arm in the NFC Championship Game. Despite this, he insisted he would still find a way to play in the Super Bowl. His prediction turned out to be accurate.          ## Question:         What game did Thomas Davis say he would play in, despite breaking a bone earlier on?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         Carolina suffered a major setback when Thomas Davis, an 11-year veteran who had already overcome three ACL tears in his career, went down with a broken arm in the NFC Championship Game. Despite this, he insisted he would still find a way to play in the Super Bowl. His prediction turned out to be accurate.          ## Question:         What game did Thomas Davis say he would play in, despite breaking a bone earlier on?         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "Super Bowl"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 9,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 604
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         For a long time, number theory in general, and the study of prime numbers in particular, was seen as the canonical example of pure mathematics, with no applications outside of the self-interest of studying the topic with the exception of use of prime numbered gear teeth to distribute wear evenly. In particular, number theorists such as British mathematician G. H. Hardy prided themselves on doing work that had absolutely no military significance. However, this vision was shattered in the 1970s, when it was publicly announced that prime numbers could be used as the basis for the creation of public key cryptography algorithms. Prime numbers are also used for hash tables and pseudorandom number generators.          ## Question:         Besides the study of prime numbers, what general theory was considered the official example of pure mathematics?          Let's think step by step.         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         For a long time, number theory in general, and the study of prime numbers in particular, was seen as the canonical example of pure mathematics, with no applications outside of the self-interest of studying the topic with the exception of use of prime numbered gear teeth to distribute wear evenly. In particular, number theorists such as British mathematician G. H. Hardy prided themselves on doing work that had absolutely no military significance. However, this vision was shattered in the 1970s, when it was publicly announced that prime numbers could be used as the basis for the creation of public key cryptography algorithms. Prime numbers are also used for hash tables and pseudorandom number generators.          ## Question:         Besides the study of prime numbers, what general theory was considered the official example of pure mathematics?          Let's think step by step.         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "number theory"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 10,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 654
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: If you're relaxing with friends and you agree with one but not the other, what have you done?            (A) keep secrets (B) side with (C) hang out (D) lying (E) talking about"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: If you're relaxing with friends and you agree with one but not the other, what have you done?            (A) keep secrets (B) side with (C) hang out (D) lying (E) talking about",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 11,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 692
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Applying sunscreen: The guy puts the lotion on his arms, stomach, chest, waist line and the parts of his back he can reach. The guy            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) puts tablet, phone, knife and water bottle and goes outside. (B) then unbuttons his shirt which is secured on the back of his head. (C) stands and puts on more of the sun block lotion while other people in the back ground stands/sits on the sand talking. (D) put on a shirt that reads \" kind of sexy \" and open a bottle of sleeping pills and begins to sleep lightly, then he jumps in a pool placing the sleeping pill on his tongue."
+        }
+      ],
+      "question": "         Context: Applying sunscreen: The guy puts the lotion on his arms, stomach, chest, waist line and the parts of his back he can reach. The guy            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) puts tablet, phone, knife and water bottle and goes outside. (B) then unbuttons his shirt which is secured on the back of his head. (C) stands and puts on more of the sun block lotion while other people in the back ground stands/sits on the sand talking. (D) put on a shirt that reads \" kind of sexy \" and open a bottle of sleeping pills and begins to sleep lightly, then he jumps in a pool placing the sleeping pill on his tongue.",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "C"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 12,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 754
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Health: How to forget your troubles. Get out of town. Try leaving your neighborhood for a few days. You do not have to spend a ton of money or go to an exotic location.            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) Sometimes a slight change in location is all you need to stop worrying and forget about your troubles. Visit a friend in another near-by city. (B) Go for a walk or stay in your home for a couple of weeks. Finally, go work! Try not to get sick at work, though. (C) You do not have to worry about meeting any of the hottest top stars in the world at this point. Who says you have to get out on the town? Go somewhere cheap and relaxed. (D) Go for a bike ride or ride a unicorn. For a challenge, do something adventurous and get in a little black dress.  Let's think step by step"
+        }
+      ],
+      "question": "         Context: Health: How to forget your troubles. Get out of town. Try leaving your neighborhood for a few days. You do not have to spend a ton of money or go to an exotic location.            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) Sometimes a slight change in location is all you need to stop worrying and forget about your troubles. Visit a friend in another near-by city. (B) Go for a walk or stay in your home for a couple of weeks. Finally, go work! Try not to get sick at work, though. (C) You do not have to worry about meeting any of the hottest top stars in the world at this point. Who says you have to get out on the town? Go somewhere cheap and relaxed. (D) Go for a bike ride or ride a unicorn. For a challenge, do something adventurous and get in a little black dress.  Let's think step by step",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "A"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 13,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 758
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         The Rhine is the longest river in Germany. It is here that the Rhine encounters some more of its main tributaries, such as the Neckar, the Main and, later, the Moselle, which contributes an average discharge of more than 300 m3/s (11,000 cu ft/s). Northeastern France drains to the Rhine via the Moselle; smaller rivers drain the Vosges and Jura Mountains uplands. Most of Luxembourg and a very small part of Belgium also drain to the Rhine via the Moselle. As it approaches the Dutch border, the Rhine has an annual mean discharge of 2,290 m3/s (81,000 cu ft/s) and an average width of 400 m (1,300 ft).          ## Question:         How much does the Rhine discharge at the Dutch border?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         The Rhine is the longest river in Germany. It is here that the Rhine encounters some more of its main tributaries, such as the Neckar, the Main and, later, the Moselle, which contributes an average discharge of more than 300 m3/s (11,000 cu ft/s). Northeastern France drains to the Rhine via the Moselle; smaller rivers drain the Vosges and Jura Mountains uplands. Most of Luxembourg and a very small part of Belgium also drain to the Rhine via the Moselle. As it approaches the Dutch border, the Rhine has an annual mean discharge of 2,290 m3/s (81,000 cu ft/s) and an average width of 400 m (1,300 ft).          ## Question:         How much does the Rhine discharge at the Dutch border?         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "2,290 m3/s (81,000 cu ft/s)"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 14,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 759
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         In 1700 several hundred French Huguenots migrated from England to the colony of Virginia, where the English Crown had promised them land grants in Lower Norfolk County. When they arrived, colonial authorities offered them instead land 20 miles above the falls of the James River, at the abandoned Monacan village known as Manakin Town, now in Powhatan County. Some settlers landed in present-day Chesterfield County. On 12 May 1705, the Virginia General Assembly passed an act to naturalise the 148 Huguenots still resident at Manakintown. Of the original 390 settlers in the isolated settlement, many had died; others lived outside town on farms in the English style; and others moved to different areas. Gradually they intermarried with their English neighbors. Through the 18th and 19th centuries, descendants of the French migrated west into the Piedmont, and across the Appalachian Mountains into the West of what became Kentucky, Tennessee, Missouri, and other states. In the Manakintown area, the Huguenot Memorial Bridge across the James River and Huguenot Road were named in their honor, as were many local features, including several schools, including Huguenot High School.          ## Question:         How many settlers original settled in Manakintown?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         In 1700 several hundred French Huguenots migrated from England to the colony of Virginia, where the English Crown had promised them land grants in Lower Norfolk County. When they arrived, colonial authorities offered them instead land 20 miles above the falls of the James River, at the abandoned Monacan village known as Manakin Town, now in Powhatan County. Some settlers landed in present-day Chesterfield County. On 12 May 1705, the Virginia General Assembly passed an act to naturalise the 148 Huguenots still resident at Manakintown. Of the original 390 settlers in the isolated settlement, many had died; others lived outside town on farms in the English style; and others moved to different areas. Gradually they intermarried with their English neighbors. Through the 18th and 19th centuries, descendants of the French migrated west into the Piedmont, and across the Appalachian Mountains into the West of what became Kentucky, Tennessee, Missouri, and other states. In the Manakintown area, the Huguenot Memorial Bridge across the James River and Huguenot Road were named in their honor, as were many local features, including several schools, including Huguenot High School.          ## Question:         How many settlers original settled in Manakintown?         ",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "390"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 15,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 913
+      }
+    }
+  ],
+  "example_pairs": [
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following question.          Question: Three snails raced across a rain-soaked sidewalk.  The first snail raced at a speed of 2 feet per minute.  The second snail raced at twice the speed of the first snail.  And the third snail traveled at five times the rate of speed as the second snail.  If it took the first snail 20 minutes to race all the way up the sidewalk, how long, in minutes, did it take for the third snail to race all the way up the sidewalk?         Let's think step by step         "
+        }
+      ],
+      "question": "         Answer the following question.          Question: Three snails raced across a rain-soaked sidewalk.  The first snail raced at a speed of 2 feet per minute.  The second snail raced at twice the speed of the first snail.  And the third snail traveled at five times the rate of speed as the second snail.  If it took the first snail 20 minutes to race all the way up the sidewalk, how long, in minutes, did it take for the third snail to race all the way up the sidewalk?         Let's think step by step         ",
+      "answer": "If the first snail traveled the distance in 20 minutes, then the second snail, traveling at twice the rate of speed, would take 20/2=<<20/2=10>>10 minutes to complete the race. If the third snail raced at five times the speed of the second snail, then it would take the third snail 10/5=<<10/5=2>>2 minutes to race all the way up the sidewalk. #### 2",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "If the first snail traveled the distance in 20 minutes, then the second snail, traveling at twice the rate of speed, would take 20/2=<<20/2=10>>10 minutes to complete the race. If the third snail raced at five times the speed of the second snail, then it would take the third snail 10/5=<<10/5=2>>2 minutes to race all the way up the sidewalk. #### 2"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 0,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 25
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question. Your answer must be True or False.                 ## Context:                 Captain America: Reborn is a six-issue (originally intended to be five issues) monthly comic book limited series published by Marvel Comics between July 2009 and January 2010. The series was written by Ed Brubaker, illustrated by Bryan Hitch, and inked by Butch Guice. The series reveals the truth regarding the death of the original Captain America, Steve Rogers (as told in the story arc The Death of Captain America) and revives him in the contemporary Marvel Universe.                  ## Question:                 does captain america come back to life in the comics                 "
+        }
+      ],
+      "question": " Use the following context to answer the question. Your answer must be True or False.                 ## Context:                 Captain America: Reborn is a six-issue (originally intended to be five issues) monthly comic book limited series published by Marvel Comics between July 2009 and January 2010. The series was written by Ed Brubaker, illustrated by Bryan Hitch, and inked by Butch Guice. The series reveals the truth regarding the death of the original Captain America, Steve Rogers (as told in the story arc The Death of Captain America) and revives him in the contemporary Marvel Universe.                  ## Question:                 does captain america come back to life in the comics                 ",
+      "answer": "True",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "True"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 1,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 89
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following question. Make sure to put the answer ( and only answer ) inside \\\\\\\\\\\\\\\\boxed{}.          Question: How many degrees are in the measure of the smaller angle formed by the hour and minute hands of a clock when the time is 7 p.m.?         Let's think step by step         "
+        }
+      ],
+      "question": "         Answer the following question. Make sure to put the answer ( and only answer ) inside \\\\\\\\\\\\\\\\boxed{}.          Question: How many degrees are in the measure of the smaller angle formed by the hour and minute hands of a clock when the time is 7 p.m.?         Let's think step by step         ",
+      "answer": "[asy] unitsize(0.8inch); for (int i=0 ; i<=11 ;++i) { draw((rotate(i*30)*(0.8,0)) -- (rotate(i*30)*(1,0))); label(format(\"%d\",i+1),(rotate(60 - i*30)*(0.68,0))); } draw(Circle((0,0),1),linewidth(1.1)); draw((0,0.7)--(0,0)--(rotate(-120)*(0.5,0)),linewidth(1.2)); [/asy]  There are 12 hours on a clock, so each hour mark is $360^\\\\\\\\\\\\\\\\circ/12 = 30^\\\\\\\\\\\\\\\\circ$ from its neighbors.  At 7:00, the minute hand points at the 12, while the hour hand points at hour 7.  So, the hands are 5 \"hours\" apart, which means that the angle between the hands is $5\\\\\\\\\\\\\\\\cdot 30^\\\\\\\\\\\\\\\\circ = \\\\\\\\\\\\\\\\boxed{150^\\\\\\\\\\\\\\\\circ}$.",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "[asy] unitsize(0.8inch); for (int i=0 ; i<=11 ;++i) { draw((rotate(i*30)*(0.8,0)) -- (rotate(i*30)*(1,0))); label(format(\"%d\",i+1),(rotate(60 - i*30)*(0.68,0))); } draw(Circle((0,0),1),linewidth(1.1)); draw((0,0.7)--(0,0)--(rotate(-120)*(0.5,0)),linewidth(1.2)); [/asy]  There are 12 hours on a clock, so each hour mark is $360^\\\\\\\\\\\\\\\\circ/12 = 30^\\\\\\\\\\\\\\\\circ$ from its neighbors.  At 7:00, the minute hand points at the 12, while the hour hand points at hour 7.  So, the hands are 5 \"hours\" apart, which means that the angle between the hands is $5\\\\\\\\\\\\\\\\cdot 30^\\\\\\\\\\\\\\\\circ = \\\\\\\\\\\\\\\\boxed{150^\\\\\\\\\\\\\\\\circ}$."
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 2,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 104
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question. Your answer must be True or False.                         ## Context:                         A toddler is a child 12 to 36 months old. The toddler years are a time of great cognitive, emotional and social development. The word is derived from ``to toddle'', which means to walk unsteadily, like a child of this age.                          ## Question:                         is a 2 year old still considered a baby                          Let's think step by step.                         "
+        }
+      ],
+      "question": " Use the following context to answer the question. Your answer must be True or False.                         ## Context:                         A toddler is a child 12 to 36 months old. The toddler years are a time of great cognitive, emotional and social development. The word is derived from ``to toddle'', which means to walk unsteadily, like a child of this age.                          ## Question:                         is a 2 year old still considered a baby                          Let's think step by step.                         ",
+      "answer": "False",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "False"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 3,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 114
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Chopping wood: A man is seen standing before a large log holding an ax in his hands. He holds the ax up over his head while still looking down at the log. He            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) throws the ax down with his feet behind his head and continues using it back and fourth until it is broken in half. (B) turns around and slowly raises his ax up in the air. (C) continues chopping the wood while looking up to the camera. (D) swing the ax down and chops the log in half."
+        }
+      ],
+      "question": "         Context: Chopping wood: A man is seen standing before a large log holding an ax in his hands. He holds the ax up over his head while still looking down at the log. He            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) throws the ax down with his feet behind his head and continues using it back and fourth until it is broken in half. (B) turns around and slowly raises his ax up in the air. (C) continues chopping the wood while looking up to the camera. (D) swing the ax down and chops the log in half.",
+      "answer": "D",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 4,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 142
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Which of these will reduce the gravitational force between two objects the most?            (A) halving the distance between them (B) doubling the distance between them (C) halving the distance between them and doubling their mass (D) doubling the distance between them and halving their mass"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Which of these will reduce the gravitational force between two objects the most?            (A) halving the distance between them (B) doubling the distance between them (C) halving the distance between them and doubling their mass (D) doubling the distance between them and halving their mass",
+      "answer": "D",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 5,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 228
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A single night of taking the drug Ecstasy   can cause serious brain damage and speed up the start of Parkinson's disease , scientists say. Just two or three Ecstasy tablets can permanently destroy brain cells that affect movement and reasoning, according to American research that links the drug to Parkinson's for the first time. A study by a team at Johns Hopkins University in Baltimore, Maryland, involving squirrel monkeys and baboons   found that both species suffered permanent damage to key cells, which are lost in Parkinson's, after receiving three low doses of Ecstasy at three-hour periods. The study is particularly important because baboons are one of the best animal models for the human brain. George Ricaurte, who led the research, said that the widespread abuse of drug might have caused severe damage. \"The most troubling result is that young adults using Ecstasy may be increasing their risk of developing Parkinsonism as they get older.\" Alan Leshner, a former director of the US National Institute on Drug Abuse, said, \"This study emphasizes the multi-aspect damage that Ecstasy causes to users. We've long known that repeated use damages brain cells. But this study shows that even very occasional  use can have long-lasting effects on many different brain systems. It sends an important message to young people: don't experiment with your own brain.\" Janet Betts, a mother whose teenage daughter Leah died after a single Ecstasy tablet in 1995, said, \"This comes as no surprise. But people can't see the effects at first, and they say it won't happen to them. We'll see the symptoms later, just as we have with smoking.\" The article is intended to   _  .  ## Options: A. explain the bad effects of drugs on people's health B. warn young people of the risk of taking the drug Ecstasy C. persuade people out of such bad habits as smoking and using drugs D. tell us the links between the drug Ecstasy and the animal models   Let's think step by step."
+        }
+      ],
+      "question": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A single night of taking the drug Ecstasy   can cause serious brain damage and speed up the start of Parkinson's disease , scientists say. Just two or three Ecstasy tablets can permanently destroy brain cells that affect movement and reasoning, according to American research that links the drug to Parkinson's for the first time. A study by a team at Johns Hopkins University in Baltimore, Maryland, involving squirrel monkeys and baboons   found that both species suffered permanent damage to key cells, which are lost in Parkinson's, after receiving three low doses of Ecstasy at three-hour periods. The study is particularly important because baboons are one of the best animal models for the human brain. George Ricaurte, who led the research, said that the widespread abuse of drug might have caused severe damage. \"The most troubling result is that young adults using Ecstasy may be increasing their risk of developing Parkinsonism as they get older.\" Alan Leshner, a former director of the US National Institute on Drug Abuse, said, \"This study emphasizes the multi-aspect damage that Ecstasy causes to users. We've long known that repeated use damages brain cells. But this study shows that even very occasional  use can have long-lasting effects on many different brain systems. It sends an important message to young people: don't experiment with your own brain.\" Janet Betts, a mother whose teenage daughter Leah died after a single Ecstasy tablet in 1995, said, \"This comes as no surprise. But people can't see the effects at first, and they say it won't happen to them. We'll see the symptoms later, just as we have with smoking.\" The article is intended to   _  .  ## Options: A. explain the bad effects of drugs on people's health B. warn young people of the risk of taking the drug Ecstasy C. persuade people out of such bad habits as smoking and using drugs D. tell us the links between the drug Ecstasy and the animal models   Let's think step by step.",
+      "answer": "B",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 6,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 250
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A common approximation made in many-body nuclear calculations of some interaction (for example an electroweak interaction) is to suppose that nucleons in a nucleus behave in the same way as free nucleons. Which of the following four assumptions jointly imply this \"\"impulse\"\" approximation?  1. The interaction current only interacts with individual nucleons. 2. The nucleus is transparent apart from the selected nucleon. 3. The quarks internal to the selected nucleon are non-relativistic. 4. The interaction proceeds as if the selected nucleon experiences no binding forces.  ## Options: A. 1,2,3 B. 1,2,4 C. 1,3,4 D. 2,3,4   Let's think step by step."
+        }
+      ],
+      "question": "Answer the following multiple-choice question by selecting the correct option (A, B, C, or D). You Must put your final answer letter in a parenthesis.  ## Question: A common approximation made in many-body nuclear calculations of some interaction (for example an electroweak interaction) is to suppose that nucleons in a nucleus behave in the same way as free nucleons. Which of the following four assumptions jointly imply this \"\"impulse\"\" approximation?  1. The interaction current only interacts with individual nucleons. 2. The nucleus is transparent apart from the selected nucleon. 3. The quarks internal to the selected nucleon are non-relativistic. 4. The interaction proceeds as if the selected nucleon experiences no binding forces.  ## Options: A. 1,2,3 B. 1,2,4 C. 1,3,4 D. 2,3,4   Let's think step by step.",
+      "answer": "B",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 7,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 281
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Mark's semen was very thick, but after his vasectomy it was also what?            (A) blank (B) sparse (C) thin (D) clear (E) free flowing  Let's think step by step"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: Mark's semen was very thick, but after his vasectomy it was also what?            (A) blank (B) sparse (C) thin (D) clear (E) free flowing  Let's think step by step",
+      "answer": "D",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "D"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 8,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 558
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         Carolina suffered a major setback when Thomas Davis, an 11-year veteran who had already overcome three ACL tears in his career, went down with a broken arm in the NFC Championship Game. Despite this, he insisted he would still find a way to play in the Super Bowl. His prediction turned out to be accurate.          ## Question:         What game did Thomas Davis say he would play in, despite breaking a bone earlier on?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         Carolina suffered a major setback when Thomas Davis, an 11-year veteran who had already overcome three ACL tears in his career, went down with a broken arm in the NFC Championship Game. Despite this, he insisted he would still find a way to play in the Super Bowl. His prediction turned out to be accurate.          ## Question:         What game did Thomas Davis say he would play in, despite breaking a bone earlier on?         ",
+      "answer": "Super Bowl",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "Super Bowl"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 9,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 604
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         For a long time, number theory in general, and the study of prime numbers in particular, was seen as the canonical example of pure mathematics, with no applications outside of the self-interest of studying the topic with the exception of use of prime numbered gear teeth to distribute wear evenly. In particular, number theorists such as British mathematician G. H. Hardy prided themselves on doing work that had absolutely no military significance. However, this vision was shattered in the 1970s, when it was publicly announced that prime numbers could be used as the basis for the creation of public key cryptography algorithms. Prime numbers are also used for hash tables and pseudorandom number generators.          ## Question:         Besides the study of prime numbers, what general theory was considered the official example of pure mathematics?          Let's think step by step.         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         For a long time, number theory in general, and the study of prime numbers in particular, was seen as the canonical example of pure mathematics, with no applications outside of the self-interest of studying the topic with the exception of use of prime numbered gear teeth to distribute wear evenly. In particular, number theorists such as British mathematician G. H. Hardy prided themselves on doing work that had absolutely no military significance. However, this vision was shattered in the 1970s, when it was publicly announced that prime numbers could be used as the basis for the creation of public key cryptography algorithms. Prime numbers are also used for hash tables and pseudorandom number generators.          ## Question:         Besides the study of prime numbers, what general theory was considered the official example of pure mathematics?          Let's think step by step.         ",
+      "answer": "number theory",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "number theory"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 10,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 654
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: If you're relaxing with friends and you agree with one but not the other, what have you done?            (A) keep secrets (B) side with (C) hang out (D) lying (E) talking about"
+        }
+      ],
+      "question": "         Answer the following multiple-choice question by selecting the correct option. You Must put your final answer letter in a parenthesis.          Question: If you're relaxing with friends and you agree with one but not the other, what have you done?            (A) keep secrets (B) side with (C) hang out (D) lying (E) talking about",
+      "answer": "B",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "B"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 11,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 692
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Applying sunscreen: The guy puts the lotion on his arms, stomach, chest, waist line and the parts of his back he can reach. The guy            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) puts tablet, phone, knife and water bottle and goes outside. (B) then unbuttons his shirt which is secured on the back of his head. (C) stands and puts on more of the sun block lotion while other people in the back ground stands/sits on the sand talking. (D) put on a shirt that reads \" kind of sexy \" and open a bottle of sleeping pills and begins to sleep lightly, then he jumps in a pool placing the sleeping pill on his tongue."
+        }
+      ],
+      "question": "         Context: Applying sunscreen: The guy puts the lotion on his arms, stomach, chest, waist line and the parts of his back he can reach. The guy            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) puts tablet, phone, knife and water bottle and goes outside. (B) then unbuttons his shirt which is secured on the back of his head. (C) stands and puts on more of the sun block lotion while other people in the back ground stands/sits on the sand talking. (D) put on a shirt that reads \" kind of sexy \" and open a bottle of sleeping pills and begins to sleep lightly, then he jumps in a pool placing the sleeping pill on his tongue.",
+      "answer": "C",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "C"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 12,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 754
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": "         Context: Health: How to forget your troubles. Get out of town. Try leaving your neighborhood for a few days. You do not have to spend a ton of money or go to an exotic location.            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) Sometimes a slight change in location is all you need to stop worrying and forget about your troubles. Visit a friend in another near-by city. (B) Go for a walk or stay in your home for a couple of weeks. Finally, go work! Try not to get sick at work, though. (C) You do not have to worry about meeting any of the hottest top stars in the world at this point. Who says you have to get out on the town? Go somewhere cheap and relaxed. (D) Go for a bike ride or ride a unicorn. For a challenge, do something adventurous and get in a little black dress.  Let's think step by step"
+        }
+      ],
+      "question": "         Context: Health: How to forget your troubles. Get out of town. Try leaving your neighborhood for a few days. You do not have to spend a ton of money or go to an exotic location.            Which of the following is the most likely continuation? You Must put your final answer letter in a parenthesis.          (A) Sometimes a slight change in location is all you need to stop worrying and forget about your troubles. Visit a friend in another near-by city. (B) Go for a walk or stay in your home for a couple of weeks. Finally, go work! Try not to get sick at work, though. (C) You do not have to worry about meeting any of the hottest top stars in the world at this point. Who says you have to get out on the town? Go somewhere cheap and relaxed. (D) Go for a bike ride or ride a unicorn. For a challenge, do something adventurous and get in a little black dress.  Let's think step by step",
+      "answer": "A",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "A"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 13,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 758
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         The Rhine is the longest river in Germany. It is here that the Rhine encounters some more of its main tributaries, such as the Neckar, the Main and, later, the Moselle, which contributes an average discharge of more than 300 m3/s (11,000 cu ft/s). Northeastern France drains to the Rhine via the Moselle; smaller rivers drain the Vosges and Jura Mountains uplands. Most of Luxembourg and a very small part of Belgium also drain to the Rhine via the Moselle. As it approaches the Dutch border, the Rhine has an annual mean discharge of 2,290 m3/s (81,000 cu ft/s) and an average width of 400 m (1,300 ft).          ## Question:         How much does the Rhine discharge at the Dutch border?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         The Rhine is the longest river in Germany. It is here that the Rhine encounters some more of its main tributaries, such as the Neckar, the Main and, later, the Moselle, which contributes an average discharge of more than 300 m3/s (11,000 cu ft/s). Northeastern France drains to the Rhine via the Moselle; smaller rivers drain the Vosges and Jura Mountains uplands. Most of Luxembourg and a very small part of Belgium also drain to the Rhine via the Moselle. As it approaches the Dutch border, the Rhine has an annual mean discharge of 2,290 m3/s (81,000 cu ft/s) and an average width of 400 m (1,300 ft).          ## Question:         How much does the Rhine discharge at the Dutch border?         ",
+      "answer": "2,290 m3/s (81,000 cu ft/s)",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "2,290 m3/s (81,000 cu ft/s)"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 14,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 759
+      }
+    },
+    {
+      "data_source": "gen_general",
+      "prompt": [
+        {
+          "role": "user",
+          "content": " Use the following context to answer the question.         ## Context:         In 1700 several hundred French Huguenots migrated from England to the colony of Virginia, where the English Crown had promised them land grants in Lower Norfolk County. When they arrived, colonial authorities offered them instead land 20 miles above the falls of the James River, at the abandoned Monacan village known as Manakin Town, now in Powhatan County. Some settlers landed in present-day Chesterfield County. On 12 May 1705, the Virginia General Assembly passed an act to naturalise the 148 Huguenots still resident at Manakintown. Of the original 390 settlers in the isolated settlement, many had died; others lived outside town on farms in the English style; and others moved to different areas. Gradually they intermarried with their English neighbors. Through the 18th and 19th centuries, descendants of the French migrated west into the Piedmont, and across the Appalachian Mountains into the West of what became Kentucky, Tennessee, Missouri, and other states. In the Manakintown area, the Huguenot Memorial Bridge across the James River and Huguenot Road were named in their honor, as were many local features, including several schools, including Huguenot High School.          ## Question:         How many settlers original settled in Manakintown?         "
+        }
+      ],
+      "question": " Use the following context to answer the question.         ## Context:         In 1700 several hundred French Huguenots migrated from England to the colony of Virginia, where the English Crown had promised them land grants in Lower Norfolk County. When they arrived, colonial authorities offered them instead land 20 miles above the falls of the James River, at the abandoned Monacan village known as Manakin Town, now in Powhatan County. Some settlers landed in present-day Chesterfield County. On 12 May 1705, the Virginia General Assembly passed an act to naturalise the 148 Huguenots still resident at Manakintown. Of the original 390 settlers in the isolated settlement, many had died; others lived outside town on farms in the English style; and others moved to different areas. Gradually they intermarried with their English neighbors. Through the 18th and 19th centuries, descendants of the French migrated west into the Piedmont, and across the Appalachian Mountains into the West of what became Kentucky, Tennessee, Missouri, and other states. In the Manakintown area, the Huguenot Memorial Bridge across the James River and Huguenot Road were named in their honor, as were many local features, including several schools, including Huguenot High School.          ## Question:         How many settlers original settled in Manakintown?         ",
+      "answer": "390",
+      "ability": "general",
+      "reward_model": {
+        "style": "rule",
+        "ground_truth": "390"
+      },
+      "extra_info": {
+        "split": "train",
+        "index": 15,
+        "metric": "gen_general",
+        "chosen_references": [],
+        "source_index": 913
+      }
+    }
+  ]
+}

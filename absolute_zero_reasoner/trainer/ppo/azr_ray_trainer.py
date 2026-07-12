@@ -32,7 +32,6 @@ from verl.protocol import pad_dataproto_to_divisor, unpad_dataproto, DataProto
 
 from absolute_zero_reasoner.utils.tracking import ReasonRLTracking
 from absolute_zero_reasoner.utils.prompt_manager import PromptManager
-from absolute_zero_reasoner.utils.actor_prompt_optimizer import ActorPromptOptimizer, SafePromptUpdater
 from absolute_zero_reasoner.data_construction.constructor import get_gen_code_io_data, get_pred_code_io_data, get_gen_general_io_data, get_pred_general_io_data, get_judge_general_io_data
 from absolute_zero_reasoner.trainer.ppo.reason_rl_ray_trainer import ReasonRLRayPPOTrainer
 from absolute_zero_reasoner.utils.dataset.rl_dataset import RLHFDataset
@@ -698,7 +697,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
     def __init__(self, past_epoch_window: int = 10, benchmark_reward_fn=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # assert self.config.actor_rollout_ref.rollout.n == 1, "GeneralIO only supports n=1 for now"
 
         self._past_epoch_window = past_epoch_window
         self.dataset_manager = DatasetManager.remote()
@@ -706,30 +704,9 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         self._cleanup_frequency = self.config.azr.get('executor_cleanup_frequency', 5)
         self.benchmark_reward_fn = benchmark_reward_fn
         
-        # Initialize prompt manager for dynamic prompt improvements
         self.prompt_manager = PromptManager(
-            config=self.config,
-            output_dir=self.config.trainer.default_local_dir + "/prompt_history"
+            config=self.config
         )
-        
-        # Initialize actor-driven prompt optimizer
-        self.enable_actor_optimization = getattr(self.config.azr, 'enable_actor_prompt_optimization', False)
-        if self.enable_actor_optimization:
-            # Get infer_together configuration from reward_fn config
-            infer_together = getattr(self.config.reward_fn, 'infer_together', False)
-            
-            self.actor_prompt_optimizer = ActorPromptOptimizer(
-                model_interface=self._create_model_interface(),
-                prompt_manager=self.prompt_manager,
-                output_dir=self.config.trainer.default_local_dir + "/actor_prompt_optimization",
-                infer_together=infer_together
-            )
-            self.safe_prompt_updater = SafePromptUpdater(self.prompt_manager)
-            print(f"[DEBUG] GeneralIORayPPOTrainer: Initialized with actor prompt optimization ENABLED (infer_together={infer_together})")
-        else:
-            self.actor_prompt_optimizer = None
-            self.safe_prompt_updater = None
-            print(f"[DEBUG] GeneralIORayPPOTrainer: Actor prompt optimization DISABLED")
             
         # Set prompt_manager for reward functions if available
         if hasattr(self, 'prompt_manager') and self.prompt_manager is not None:
@@ -747,64 +724,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             
         print(f"[DEBUG] GeneralIORayPPOTrainer: Initialized with prompt manager")
     
-    def _create_model_interface(self):
-        """Create a model interface for prompt optimization"""
-        class ActorModelInterface:
-            def __init__(self, trainer):
-                self.trainer = trainer
-                
-            def generate(self, prompt_text: str, max_length: int = 1024) -> str:
-                """Generate text using the actor rollout worker group"""
-                try:
-                    # Tokenize input
-                    tokenizer = self.trainer.tokenizer
-                    inputs = tokenizer(prompt_text, return_tensors="pt", truncation=True, max_length=1024)
-                    
-                    # Use actor rollout world size to ensure DataProto can be chunked evenly
-                    world_size = getattr(self.trainer.actor_rollout_wg, 'world_size', 1)
-                    
-                    # Build a single-sample batch, we'll pad to divisor below
-                    batch_dict = {
-                        'input_ids': inputs['input_ids'],
-                        'attention_mask': inputs['attention_mask'],
-                        'position_ids': torch.arange(inputs['input_ids'].shape[1]).unsqueeze(0)
-                    }
-                    
-                    # Convert to DataProto and pad to world_size divisor
-                    gen_batch = DataProto.from_single_dict(batch_dict)
-                    gen_batch_padded, pad_size = pad_dataproto_to_divisor(gen_batch, world_size)
-                    print(f"[DEBUG] ActorModelInterface: Padded batch for world_size={world_size}, pad_size={pad_size}")
-                    
-                    # Generate using actor_rollout_wg
-                    with torch.no_grad():
-                        gen_output_padded = self.trainer.actor_rollout_wg.generate_sequences(gen_batch_padded)
-                    
-                    # Unpad back to original size
-                    gen_output = unpad_dataproto(gen_output_padded, pad_size=pad_size)
-                    
-                    # Extract generated text (take the first result)
-                    if 'responses' in gen_output.batch:
-                        response_ids = gen_output.batch['responses'][0]
-                        response_text = tokenizer.decode(response_ids, skip_special_tokens=True)
-                        return response_text.strip()
-                    else:
-                        print("[DEBUG] ActorModelInterface: No 'responses' in generation output")
-                        return ""
-                    
-                except Exception as e:
-                    print(f"[DEBUG] ActorModelInterface: Generation error: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    return ""
-        
-        return ActorModelInterface(self)
-    
     def cleanup(self):
         gc.collect()
-    
-    def _is_general_task(self) -> bool:
-        """Check if current task type is general"""
-        return getattr(self.config.azr, 'task_type', 'code') == 'general'
 
     def _run_benchmark_evaluation(self) -> dict:
         """Run benchmark evaluation for general tasks"""
@@ -836,7 +757,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             dataset_key = "general"
         io_data = ray.get(self.dataset_manager.get_dataset.remote(dataset_key))
 
-        parquet_path = (self._code_dir / f'train_gen_{problem_type}.parquet').as_posix()
+        parquet_path = (self._dataset_dir / f'train_gen_{problem_type}.parquet').as_posix()
         os.makedirs(os.path.dirname(parquet_path), exist_ok=True)
 
         # Handle weights strategy
@@ -931,7 +852,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
-        parquet_path = (self._code_dir / f'train_pred_{problem_type}.parquet').as_posix()
+        parquet_path = (self._dataset_dir / f'train_pred_{problem_type}.parquet').as_posix()
 
         get_pred_general_io_data(
             io_data=selected_data,
@@ -1013,7 +934,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         else:
             raise ValueError(f"Unknown strategy: {strategy}")
 
-        parquet_path = (self._code_dir / f'train_judge_{problem_type}.parquet').as_posix()
+        parquet_path = (self._dataset_dir / f'train_judge_{problem_type}.parquet').as_posix()
 
         get_judge_general_io_data(
             io_data=selected_data,
@@ -1071,7 +992,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                            sampler=sampler)
         print(judge_train_dataloader)
         
-        # Verify dataloader has data when dataset is non-empty
         if len(judge_train_dataset) > 0:
             assert len(judge_train_dataloader) >= 1, f"Judge dataloader has length {len(judge_train_dataloader)} but dataset has {len(judge_train_dataset)} items (batch_size={actual_batch_size}, drop_last={drop_last})"
         else:
@@ -1107,7 +1027,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
             entropys_original = old_log_prob.batch["entropys"]
 
-            # Calculate entropy aggregation with original scale for metrics logging
             response_masks = batch.batch["response_mask"]
             loss_agg_mode = self.config.actor_rollout_ref.actor.loss_agg_mode
             entropy_agg_original = agg_loss(loss_mat=entropys_original, loss_mask=response_masks, loss_agg_mode=loss_agg_mode)
@@ -1132,11 +1051,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 # Fall back to default entropy coefficient from actor config
                 entropy_coeff = self.config.actor_rollout_ref.actor.entropy_coeff
 
-            # Store the entropy coefficient in meta_info for the actor to use
             old_log_prob.meta_info['entropy_coeff'] = entropy_coeff
 
-            # Keep entropys in the batch (don't pop it) so actor can use it
-            # old_log_prob.batch.pop("entropys")  # Comment out - keep entropy for actor
             batch = batch.union(old_log_prob)
 
         if self.use_reference_policy:
@@ -1219,7 +1135,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump questions to file
                 if valid_data:
-                    with open(f'question_{self.config.trainer.experiment_name}.txt', 'a') as f:
+                    with open(f'{self.config.agent_output_dir}/question_{self.config.trainer.experiment_name}.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             f.write(f"Question: {item['question']}\n")
@@ -1244,7 +1160,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # Dump question-answer pairs to file
                 if valid_data:
-                    with open(f'pair_{self.config.trainer.experiment_name}.txt', 'a') as f:
+                    with open(f'{self.config.agent_output_dir}/pair_{self.config.trainer.experiment_name}.txt', 'a') as f:
                         f.write(f"\n=== Global Training Step {self.global_steps} ===\n")
                         for item in valid_data:
                             if 'question' in item:
@@ -1284,7 +1200,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
         return batch, metrics
 
     def _init_seed_dataset(self):
-        """Load fixed 1000 seed examples from FusionBench JSON file."""
+        """Load fixed seed examples from FusionBench JSON file."""
         PrettyPrinter.section_header("Initializing GeneralIO Seed Dataset (from fixed data)")
 
         # Default data directory for storing fixed datasets
@@ -1345,9 +1261,18 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             PrettyPrinter.status("INFO", f"Number of examples: {len(examples)}", "info")
             PrettyPrinter.status("INFO", f"Number of example pairs: {len(example_pairs)}", "info")
             
-            # Use the fixed data directly (no shuffling since it's already fixed)
-            seed_examples = examples[:1000]  # Take first 1000 or all if less
-            seed_example_pairs = example_pairs[:1000]
+            # We support using any amount of data wanted
+            # If data provided is less than batch size, we simply replicate it to meet the need
+            if self.config.data.train_batch_size > self.config.azr.init_dataset_size:
+                print("Replicating data to meet batch size need")
+                seed_examples = (examples[:self.config.azr.init_dataset_size] * 
+                    int(np.ceil(self.config.data.train_batch_size / self.config.azr.init_dataset_size)))[:self.config.data.train_batch_size]
+                seed_example_pairs = (example_pairs[:self.config.azr.init_dataset_size] * 
+                    int(np.ceil(self.config.data.train_batch_size / self.config.azr.init_dataset_size)))[:self.config.data.train_batch_size]
+            else:
+                seed_examples = examples[:self.config.azr.init_dataset_size]
+                seed_example_pairs = example_pairs[:self.config.azr.init_dataset_size]
+            print("Init dataset size:", len(seed_examples))
             
         except Exception as e:
             PrettyPrinter.status("ERROR", f"Failed to load fixed FusionBench data: {str(e)}", "error")
@@ -1390,50 +1315,34 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
         # currently, we only support validation using the reward_function.
         if self.config.trainer.get('val_before_train', True) and (self.global_steps == 0 or self.config.trainer.get('val_only', False)):
-            # PrettyPrinter.section_header(f"Starting Initial Validation")
-            # val_metrics = self._validate()
-            # PrettyPrinter.table(
-            #     ["Metric", "Value"],
-            #     [[k, v] for k, v in val_metrics.items()],
-            #     title="Initial Validation Metrics"
-            # )
-            # logger.log(data=val_metrics, step=self.global_steps)
-            # if self.config.trainer.get('val_only', False):
-            #     return
-            if self._is_general_task():
-                PrettyPrinter.status("BENCHMARK", "Running benchmark evaluation for general task", "info")
-                benchmark_metrics = self._run_benchmark_evaluation()
-                
-                # Debug: Print logger backends and metrics
-                PrettyPrinter.status("DEBUG", f"Logger backends: {list(logger.logger.keys())}", "info")
-                PrettyPrinter.status("DEBUG", f"Benchmark metrics type: {type(benchmark_metrics)}, length: {len(benchmark_metrics)}", "info")
-                if benchmark_metrics:
-                    PrettyPrinter.status("DEBUG", f"Sample metrics: {list(benchmark_metrics.keys())[:3]}", "info")
-                
-                if benchmark_metrics:
-                    logger.log(data=benchmark_metrics, step=self.global_steps)
-                    PrettyPrinter.status("WANDB", f"Logged {len(benchmark_metrics)} benchmark metrics to step {self.global_steps}", "success")
-                else:
-                    PrettyPrinter.status("WANDB", "No benchmark metrics to log", "warn")
-                
-                PrettyPrinter.table(
-                    ["Benchmark Metric", "Value"],
-                    [[k, v] for k, v in benchmark_metrics.items()],
-                    title="Benchmark Evaluation Metrics"
-                )
-                
-                if self.config.trainer.get('val_only', False):
-                    return
+            PrettyPrinter.section_header(f"Starting Initial Validation")
+            PrettyPrinter.status("BENCHMARK", "Running benchmark evaluation for general task", "info")
+            benchmark_metrics = self._run_benchmark_evaluation()
+            
+            # Debug: Print logger backends and metrics
+            PrettyPrinter.status("DEBUG", f"Logger backends: {list(logger.logger.keys())}", "info")
+            PrettyPrinter.status("DEBUG", f"Benchmark metrics type: {type(benchmark_metrics)}, length: {len(benchmark_metrics)}", "info")
+            if benchmark_metrics:
+                PrettyPrinter.status("DEBUG", f"Sample metrics: {list(benchmark_metrics.keys())[:3]}", "info")
+            
+            if benchmark_metrics:
+                logger.log(data=benchmark_metrics, step=self.global_steps)
+                PrettyPrinter.status("WANDB", f"Logged {len(benchmark_metrics)} benchmark metrics to step {self.global_steps}", "success")
+            else:
+                PrettyPrinter.status("WANDB", "No benchmark metrics to log", "warn")
+            
+            PrettyPrinter.table(
+                ["Benchmark Metric", "Value"],
+                [[k, v] for k, v in benchmark_metrics.items()],
+                title="Benchmark Evaluation Metrics"
+            )
+            
+            if self.config.trainer.get('val_only', False):
+                return
         
         if self.config.trainer.val_only:
             PrettyPrinter.status("INFO", "Validation only mode enabled, exiting after validation", "info")
             return
-
-        # Run warm-up training if enabled and we're starting from scratch
-        if self.global_steps == 0 and getattr(self.config.azr, 'warm_up_training', {}).get('enabled', False):
-            PrettyPrinter.section_header("Starting Warm-up Training")
-            self._run_warmup_training(logger)
-            PrettyPrinter.status("SUCCESS", "Warm-up training completed", "success")
 
         if self.loaded_datasets:
             PrettyPrinter.section_header(f"Resuming training from checkpoint")
@@ -1454,8 +1363,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
         while self.global_steps < self.total_training_steps:
             PrettyPrinter.section_header(f"Training Step {self.global_steps}")
-            #if self.config.azr.data_selection_strategy.composite_scheduler.enabled:
-            #    self.scheduler_step()
 
             PrettyPrinter.progress_bar(
                 current=self.global_steps,
@@ -1480,16 +1387,14 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                 )
                 # judge general data only available for judging answer currently
                 # more features like judging question may be available in the future
-                # judge training is also only available now when training alone rather than together
                 num_batches = len(gen_general_dataloader._loader) if hasattr(gen_general_dataloader, "_loader") else len(gen_general_dataloader)
                 if num_batches < self.config.azr.data_selection_strategy.update_iteration:
-                    PrettyPrinter.status("WARN", f"gen_general 只有 {num_batches} 批，不足 {self.config.azr.data_selection_strategy.update_iteration}；将重建/降级。", "warn")
+                    PrettyPrinter.status("WARN", f"gen_general has only {num_batches} batches, which is not enough", "warn")
             for _ in range(self.config.azr.data_selection_strategy.update_iteration):
                 metrics = {}
                 timing_raw = {}
                 batches = {}
                 with _timer('step', timing_raw):
-                    # Clean up executor periodically
                     if self.global_steps - self._last_cleanup_step >= self._cleanup_frequency:
                         PrettyPrinter.section_header("Periodic Cleanup")
                         with _timer('cleanup', timing_raw):
@@ -1511,10 +1416,14 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                             gen_batch, metrics = self._compute_batch(gen_batch, metrics, timing_raw, problem_type='gen_general')
                             if self.config.azr.train_propose:
                                 batches[f'gen_general'] = gen_batch
-                        batch_dict = next(pred_general_dataloader)
-                        pred_batch: DataProto = DataProto.from_single_dict(batch_dict)
-                        pred_batch, metrics = self._compute_batch(pred_batch, metrics, timing_raw, problem_type='pred_general')
-                        batches[f'pred_general'] = pred_batch
+                        if pred_general_dataloader is None:
+                            PrettyPrinter.status("WARN", "Pred dataloader exhausted, skipping pred training for this step", "warn")
+                        else:
+                            batch_dict = next(pred_general_dataloader)
+                            pred_batch: DataProto = DataProto.from_single_dict(batch_dict)
+                            pred_batch, metrics = self._compute_batch(pred_batch, metrics, timing_raw, problem_type='pred_general')
+                            if self.config.azr.get("train_solve", True):
+                                batches[f'pred_general'] = pred_batch
                         
                         # Handle judge training if dataloader is available and training is enabled
                         if judge_general_dataloader is not None and getattr(self.config.azr, 'train_judge', False):
@@ -1556,18 +1465,8 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                     PrettyPrinter.section_header(f"Starting Validation")
                     if self.config.trainer.test_freq > 0 and self.global_steps % self.config.trainer.test_freq == 0:
                         with _timer('testing', timing_raw):
-                            if self._is_general_task():
-                                # For general tasks, only run benchmark evaluation
-                                val_metrics: dict = self._run_benchmark_evaluation()
-                                evaluation_type = "Benchmark"
-                            else:
-                                # For other tasks, run standard validation
-                                if self.val_reward_fn is not None:
-                                    val_metrics: dict = self._validate()
-                                    evaluation_type = "Validation"
-                                else:
-                                    val_metrics = {}
-                                    evaluation_type = "Validation"
+                            val_metrics: dict = self._run_benchmark_evaluation()
+                            evaluation_type = "Benchmark"
                             
                             if val_metrics:
                                 PrettyPrinter.table(
@@ -1575,86 +1474,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                                     [[k, v] for k, v in val_metrics.items()],
                                     title=f"{evaluation_type} Results"
                                 )
-                                
-                                # Apply prompt improvements if benchmark tracker generated them
-                                if hasattr(self, 'prompt_manager') and hasattr(self, 'benchmark_tracker'):
-                                    try:
-                                        # Get improvement prompts from benchmark tracker
-                                        improvement_prompts = self.benchmark_tracker.generate_improvement_prompts(self.global_steps)
-                                        
-                                        if improvement_prompts:
-                                            PrettyPrinter.section_header("Applying Prompt Improvements")
-                                            
-                                            # Get performance context
-                                            analysis_report = self.benchmark_tracker.generate_analysis_report(self.global_steps)
-                                            performance_context = f"Step {self.global_steps}: "
-                                            if analysis_report and "Current overall accuracy:" in analysis_report:
-                                                accuracy_lines = [line for line in analysis_report.split('\n') 
-                                                                if 'Current overall accuracy:' in line]
-                                                if accuracy_lines:
-                                                    performance_context += accuracy_lines[0].strip()
-                                            
-                                            # Use actor-driven optimization if enabled
-                                            if self.enable_actor_optimization and self.actor_prompt_optimizer:
-                                                PrettyPrinter.status("ACTOR OPTIMIZATION", "Using actor model to optimize prompts", "info")
-                                                
-                                                # Get problematic questions and performance trends
-                                                problematic_questions = self.benchmark_tracker.find_problematic_questions()
-                                                performance_trends = self.benchmark_tracker.analyze_performance_trends()
-                                                
-                                                # Let actor model optimize prompts
-                                                optimized_prompts = self.actor_prompt_optimizer.optimize_prompts_from_analysis(
-                                                    benchmark_analysis=analysis_report,
-                                                    problematic_questions=problematic_questions,
-                                                    performance_trends=performance_trends,
-                                                    step=self.global_steps
-                                                )
-                                                
-                                                # Apply optimized prompts safely
-                                                if optimized_prompts:
-                                                    self.safe_prompt_updater.update_prompts_safely(
-                                                        optimized_prompts=optimized_prompts,
-                                                        step=self.global_steps,
-                                                        performance_context=performance_context
-                                                    )
-                                                    
-                                                    PrettyPrinter.status("ACTOR OPTIMIZATION", 
-                                                                       f"Applied {len(optimized_prompts)} actor-optimized prompts", 
-                                                                       "success")
-                                                    
-                                                    for prompt_type in optimized_prompts:
-                                                        PrettyPrinter.status("  Actor Update", 
-                                                                           f"{prompt_type}: Template updated by actor model", 
-                                                                           "info")
-                                                else:
-                                                    PrettyPrinter.status("ACTOR OPTIMIZATION", 
-                                                                       "No valid optimizations generated", 
-                                                                       "warn")
-                                            else:
-                                                # Fallback to rule-based improvements
-                                                PrettyPrinter.status("RULE-BASED", "Using rule-based prompt improvements", "info")
-                                                
-                                                # Apply improvements to prompt manager
-                                                self.prompt_manager.update_prompts_from_analysis(
-                                                    improvement_prompts=improvement_prompts,
-                                                    performance_context=performance_context,
-                                                    step=self.global_steps
-                                                )
-                                                
-                                                # Log status
-                                                prompt_status = self.prompt_manager.get_prompt_status()
-                                                for prompt_type, status in prompt_status.items():
-                                                    if status['improvements_count'] > 0:
-                                                        PrettyPrinter.status("PROMPT UPDATE", 
-                                                                           f"{prompt_type}: {status['improvements_count']} improvements", 
-                                                                           "success")
-                                                        for imp in status['current_improvements'][-3:]:  # Show last 3
-                                                            PrettyPrinter.status("  Recent", imp[:100] + "...", "info")
-                                        
-                                    except Exception as e:
-                                        PrettyPrinter.status("PROMPT UPDATE", f"Error applying improvements: {e}", "error")
-                                        import traceback
-                                        traceback.print_exc()
                         metrics.update(val_metrics)
 
                     # print the statistics of the number of questions in the dataset
@@ -1664,8 +1483,7 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
                             f"Number of questions in the general dataset: {ray.get(self.dataset_manager.get_dataset_size.remote('general'))}", 
                             "info"
                         )
-                    if self.config.trainer.save_freq > 0 and \
-                            self.global_steps % self.config.trainer.save_freq == 0:
+                    if self.config.trainer.save_freq > 0 and self.global_steps % self.config.trainer.save_freq == 0:
                         with _timer('save_checkpoint', timing_raw):
                             self._save_checkpoint()
 
@@ -1687,12 +1505,10 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
                 # Log summary metrics about types
                 for category, type_data in type_stats.items():
-                    # Calculate diversity metrics
                     total_types = len(type_data)
                     total_unique_values = sum(stats["total_unique"] for stats in type_data.values())
                     total_instances = sum(stats["total_count"] for stats in type_data.values())
 
-                    # Add to metrics
                     metrics[f"types/{category}/distinct_types"] = total_types
                     metrics[f"types/{category}/total_unique_values"] = total_unique_values
                     metrics[f"types/{category}/total_instances"] = total_instances
@@ -1743,7 +1559,6 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
                 if self.global_steps >= self.total_training_steps:
 
-                    # perform validation after training
                     if self.val_reward_fn is not None:
                         PrettyPrinter.section_header(f"Starting Final Validation")
                         val_metrics = self._validate()
@@ -1780,17 +1595,14 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
             for dataset_key in ['input', 'output', 'error', 'problem', 'general']:
                 steps_key = f"{dataset_key}_steps"
                 if steps_key in datasets_with_types and dataset_key in datasets_with_types:
-                    # Create lists of entries to keep
                     filtered_data = []
                     filtered_steps = []
 
-                    # Only keep entries with steps less than current global_steps
                     for entry, step in zip(datasets_with_types[dataset_key], datasets_with_types[steps_key]):
                         if step <= self.global_steps:
                             filtered_data.append(entry)
                             filtered_steps.append(step)
 
-                    # Update the datasets
                     datasets_with_types[dataset_key] = filtered_data
                     datasets_with_types[steps_key] = filtered_steps
 
@@ -1824,25 +1636,28 @@ class GeneralIORayPPOTrainer(ReasonRLRayPPOTrainer):
 
         # load datasets
         # first check if all the datasets exist
-        code_dir = Path(self.config.trainer.default_local_dir) / 'code'
-        self._code_dir = code_dir
+        dataset_dir = Path(self.config.trainer.default_local_dir) / 'dataset'
+        # this may make our code incompatible with previous checkpoints, previous datasets are saved under code directory
+        self._dataset_dir = dataset_dir
         self.loaded_datasets = False
         if self.config.trainer.resume_mode == 'auto' and os.path.exists(os.path.join(self.config.trainer.default_local_dir, 'datasets', 'datasets.pkl')):
             self._load_datasets(self.config.trainer.default_local_dir)
+            PrettyPrinter.status("Directory", f"Using existing dataset directory at {dataset_dir}", "info")
         elif self.config.trainer.resume_mode == 'resume_path' and os.path.exists(os.path.join(self.config.trainer.default_local_dir, 'datasets', 'datasets.pkl')):
             self._load_datasets(self.config.trainer.default_local_dir)
+            PrettyPrinter.status("Directory", f"Using existing dataset directory at {dataset_dir}", "info")
         elif self.config.trainer.resume_mode == 'disable':
-            if code_dir.exists():
-                # delete all files and subdirectories in the code_dir
-                for file in code_dir.glob('**/*'):
+            if dataset_dir.exists():
+                # delete all files and subdirectories in the dataset_dir
+                for file in dataset_dir.glob('**/*'):
                     if file.is_file():
                         file.unlink()
                     elif file.is_dir():
                         file.rmdir()
-            PrettyPrinter.status("Directory", f"Cleaned existing code directory at {code_dir}", "info")
-        elif not code_dir.exists():
-            code_dir.mkdir(parents=True, exist_ok=True)
-            PrettyPrinter.status("Directory", f"Created new code directory at {code_dir}", "info")
+                PrettyPrinter.status("Directory", f"Cleaned existing dataset directory at {dataset_dir}", "info")
+        elif not dataset_dir.exists():
+            dataset_dir.mkdir(parents=True, exist_ok=True)
+            PrettyPrinter.status("Directory", f"Created new dataset directory at {dataset_dir}", "info")
 
     def scheduler_step(self):
         if self.config.azr.data_selection_strategy.composite_scheduler.enabled:

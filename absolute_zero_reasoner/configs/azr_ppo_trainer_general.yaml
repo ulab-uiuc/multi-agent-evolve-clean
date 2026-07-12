@@ -2,10 +2,7 @@
 experiment_timestamp: null  # Will be set dynamically at runtime
 experiment_base_dir: null    # Will be set dynamically at runtime
 
-# Benchmark tracking configuration
-track_benchmarks: true
-benchmark_tracking_dir: null  # Will be set dynamically at runtime
-prompt_optimization_dir: null # Will be set dynamically at runtime
+agent_output_dir: null # Will be set dynamically at runtime
 
 data:
   tokenizer: null
@@ -131,7 +128,7 @@ actor_rollout_ref:
       # The ranks that will be profiled. null or [0,1,...]
       ranks: null
   ref:
-    include_ref: True
+    include_ref: False
     fsdp_config:
       param_offload: False
       reshard_after_forward: True # only for fsdp2, [True, False, int between 1 and fsdp_size]
@@ -254,6 +251,8 @@ actor_rollout_ref:
 
 
 trainer:
+  val_generations_to_log_to_wandb: 0
+  val_before_train: false # Only for evaluation
   output_dir: null  # Will be set dynamically at runtime
   default_data_dir: data # Directory for storing fixed datasets (e.g., fixed_fusionbench_1000.json)
   save_freq: 10
@@ -279,7 +278,8 @@ trainer:
   default_hdfs_dir: null
   remove_previous_ckpt_in_save: False
   del_local_ckpt_after_load: False
-  default_local_dir: null  # Will be set dynamically at runtime
+  default_local_dir: null  # Will be set dynamically at runtime, this is where the checkpoints will be saved 
+  # TODO(cyx): default_local_dir has to be appointed inside scripts for clarity
   balance_batch: True
   total_epochs: 30
   # The steps that will be profiled. null means no profiling. null or [1,2,5,...]
@@ -317,8 +317,9 @@ trainer:
   # Directory for logging validation data; no dump if null
   validation_data_dir: null
   # auto: find the last ckpt to resume. If can't find, start from scratch
-  resume_mode: auto # or auto or resume_path if 
-  resume_from_path: False
+  resume_mode: auto
+  resume_dir: null
+  resume_from_path: null
 
   # ESI redundant time (in seconds) for model checkpointsAdd commentMore actions
   esi_redundant_time: 0
@@ -468,6 +469,7 @@ ray_init:
 
 
 reward_fn:
+  judge_with_actor: true
   extraction_type: boxed
   math_metric: deepscaler
   splitter: "Assistant:"
@@ -485,24 +487,18 @@ azr:
   problem_types:
     - general  # Only general tasks
   pred_data_mix_strategy: "uniform_total"
+  judge_data_mix_strategy: "uniform_total"
   past_epoch_window: 1000
   pretrain_pred_steps: -1
   random_print_max_programs: 3
-  train_propose: False  # Simplified for general tasks
-  self_judge: True
-
-  enable_actor_prompt_optimization: true
-  prompt_optimization:
-    frequency: 1  # 每1个验证步骤优化一次
-    accuracy_threshold: 0.2  # 准确率低于20%时触发优化
-    max_improvements_per_step: 3
-    enable_safety_validation: true
-    output_dir: null  # Will be set dynamically at runtime
-  
-  # Benchmark tracking settings
-  benchmark_tracking:
-    output_dir: null  # Will be set dynamically at runtime
-    enable: true
+  train_propose: True  # Simplified for general tasks
+  train_judge: True
+  train_solve: True
+  proposer_entropy_coeff: 0.001
+  solver_entropy_coeff: 0.001
+  judge_entropy_coeff: 0.001
+  init_dataset_size: 1000
+  with_answer_generation: False
   
   # Benchmark evaluation settings for general tasks
   benchmark_validation_dir: "./validation_datasets"
@@ -520,16 +516,22 @@ azr:
     update_iteration: 1
     data_len: null
     content_max_length: 8096
-    max_questions: 10000  # Limit for general questions dataset
+    max_questions: null  # Limit for general questions dataset
     valid_question_filter: all
     batched_estimate: False
     
   reward:
     generation_reward_config:
       format_reward: false  # No format reward for general tasks
-      include_references: false
+      include_references: false # This value decides the setting of no-ref, half-ref and with-ref
       generation_accuracy_convertion: "inverse"
       answer_diversity_reward:
         hierarchical: false
+    diversity_reward_config:
+      enabled: false
+      threshold: 0.8
+      penalty: 0.5
+      max_pool_size: 1000
+      model_name: 'sentence-transformers/all-MiniLM-L6-v2'
     eval_reward_config: {}
     n_samples: 3  # Number of samples for difficulty estimation

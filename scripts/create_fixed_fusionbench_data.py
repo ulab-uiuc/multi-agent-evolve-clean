@@ -17,13 +17,13 @@ def extract_fixed_fusionbench_data(num_samples=1000, seed=42, output_path=None, 
         num_samples (int): Number of samples to extract (default: 1000)
         seed (int): Random seed for reproducibility (default: 42)
         output_path (str): Path to save the JSON file (if None, will use default_data_dir)
-        default_data_dir (str): Default data directory path (if None, will use "./fixed_datasets")
+        default_data_dir (str): Default data directory path (if None, will use "./data/fixed_datasets")
     """
     print(f"Extracting {num_samples} fixed samples from FusionBench dataset...")
     
     # Set default paths
     if default_data_dir is None:
-        default_data_dir = Path("./fixed_datasets")
+        default_data_dir = Path("./data/fixed_datasets")
     else:
         default_data_dir = Path(default_data_dir)
     
@@ -57,12 +57,25 @@ def extract_fixed_fusionbench_data(num_samples=1000, seed=42, output_path=None, 
         # Convert to our format and create both examples and example_pairs
         examples = []
         example_pairs = []
+        sample_map = {}
+        benchmark_count = {}
         
         for idx, item in enumerate(selected_samples):
             question = item["query"]
             answer = item["ground_truth"]
             io_prompt = f"{question}"
             chosen_references = []
+
+            origin = item['task_name']
+            if origin not in benchmark_count.keys():
+                benchmark_count[origin] = 0
+            benchmark_count[origin] += 1
+
+            if "Let's think step by step." in question:
+                _question = question.replace("Let's think step by step.", "").strip()
+                sample_map[_question] = 1
+            else:
+                sample_map[question] = 1
             
             # Create io_item (for examples)
             io_item = {
@@ -144,6 +157,12 @@ def extract_fixed_fusionbench_data(num_samples=1000, seed=42, output_path=None, 
             print(f"   Answer: {example['reward_model']['ground_truth'][:50]}...")
             print()
         
+        for k in benchmark_count.keys():
+            print("Benchmark: ", k)
+            print("Count: ", benchmark_count[k])
+
+        print("Different samples count:", len(sample_map.keys()))
+
         return output_path
         
     except Exception as e:
@@ -161,7 +180,7 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default=None,
                        help="Output path for JSON file (default: use default_data_dir)")
     parser.add_argument("--default_data_dir", type=str, default=None,
-                       help="Default data directory (default: ./fixed_datasets)")
+                       help="Default data directory (default: ./data/fixed_datasets)")
     
     args = parser.parse_args()
     

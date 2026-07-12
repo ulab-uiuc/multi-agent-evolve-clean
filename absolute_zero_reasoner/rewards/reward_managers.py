@@ -1,6 +1,8 @@
 import os
 from functools import partial
 from typing import Dict, Any, List, Tuple
+import time
+from typing import Optional
 from collections import defaultdict
 import re
 import uuid
@@ -71,7 +73,6 @@ def model_prompting_with_clients(
         llm_model = "google/gemma-3-27b-it"
 
     try:
-        # 线程安全地获取下一个 client
         with client_lock:
             client = next(client_cycle)
 
@@ -81,13 +82,12 @@ def model_prompting_with_clients(
             max_tokens=max_token_num,
             temperature=temperature,
             top_p=top_p,
-            stream=False  # 强制关闭 streaming
+            stream=False
         )
     except Exception as e:
         print(f"API call failed for model {llm_model}: {str(e)}")
         raise e
 
-    # 非流式模式下，直接取完整内容
     response_text = completion.choices[0].message.content
     return response_text
 
@@ -944,13 +944,113 @@ import json
 import numpy as np
 import random
 
+
+class DiversityFilter:
+    def __init__(self,
+                 device='cuda',
+                 model_name='sentence-transformers/all-MiniLM-L6-v2',
+                 threshold=0.8,
+                 penalty=0.5,
+                 max_pool_size=1000,
+                 cache_dir=None):
+
+        if device == 'cuda' and not torch.cuda.is_available():
+            print("Warning: CUDA requested but not available (likely running on Controller). Falling back to CPU for DiversityFilter.")
+            device = 'cpu'
+
+        self.device = device
+        self.model_name = model_name
+        self.threshold = threshold
+        self.penalty = penalty
+        self.max_pool_size = max_pool_size
+        self.cache_dir = cache_dir
+        self.pool_embeddings = None # Tensor [N, D]
+        self.pool_texts = []
+        self.model = None
+        self.tokenizer = None
+
+    def _load_model(self):
+        if self.model is None:
+            from transformers import AutoModel, AutoTokenizer
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, cache_dir=self.cache_dir)
+                self.model = AutoModel.from_pretrained(self.model_name, cache_dir=self.cache_dir).to(self.device)
+                self.model.eval()
+                print(f"Loaded embedding model on device: {self.device}")
+            except Exception as e:
+                print(f"Failed to load embedding model {self.model_name} from {self.cache_dir}: {e}")
+                pass
+
+    def compute_embeddings(self, texts):
+        self._load_model()
+        if self.model is None or self.tokenizer is None:
+            return None
+
+        # Batch processing
+        batch_size = 32
+        all_embeddings = []
+
+        for i in range(0, len(texts), batch_size):
+            batch_texts = texts[i:i+batch_size]
+            try:
+                inputs = self.tokenizer(batch_texts, padding=True, truncation=True, return_tensors="pt", max_length=128).to(self.device)
+
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
+
+                # Mean pooling
+                embeddings = outputs.last_hidden_state.mean(dim=1)
+                embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+                all_embeddings.append(embeddings)
+            except Exception as e:
+                print(f"Error computing embeddings: {e}")
+                return None
+
+        return torch.cat(all_embeddings, dim=0)
+
+    def filter_and_update(self, new_texts):
+        if not new_texts:
+            return []
+
+        new_embeddings = self.compute_embeddings(new_texts)
+        if new_embeddings is None:
+            return [0.0] * len(new_texts)
+
+        penalties = torch.zeros(len(new_texts), device=self.device)
+
+        if self.pool_embeddings is not None:
+            # Compute cosine similarity: [B, D] @ [P, D]^T -> [B, P]
+            sim_matrix = torch.mm(new_embeddings, self.pool_embeddings.t())
+            max_sim, _ = sim_matrix.max(dim=1)
+
+            # Apply penalty proportionally where similarity > threshold
+            # Scale from 0 (at threshold) to 1 (at 1.0) * penalty
+            excess_sim = torch.clamp(max_sim - self.threshold, min=0.0)
+            normalized_excess = excess_sim / (1.0 - self.threshold + 1e-6)
+            penalties = normalized_excess * self.penalty
+
+        # Update pool
+        if self.pool_embeddings is None:
+            self.pool_embeddings = new_embeddings
+            self.pool_texts = new_texts
+        else:
+            self.pool_embeddings = torch.cat([self.pool_embeddings, new_embeddings], dim=0)
+            self.pool_texts.extend(new_texts)
+
+        # Maintain max pool size (FIFO)
+        if self.pool_embeddings.size(0) > self.max_pool_size:
+            self.pool_embeddings = self.pool_embeddings[-self.max_pool_size:]
+            self.pool_texts = self.pool_texts[-self.max_pool_size:]
+
+        return penalties.tolist()
+
+
 class GeneralIORewardManager:
     """The reward manager for GeneralIO tasks."""
     def __init__(
         self,
         tokenizer: AutoTokenizer,
         num_examine: int,
-        split: str,
         reward_fn_extraction_type: str,
         splitter: str,
         output_path: str,
@@ -965,15 +1065,14 @@ class GeneralIORewardManager:
         boxed_retry: bool = False,
         judge_with_actor: bool = False,
         train_judge: bool = False,
-        infer_together: bool = False,
         prompt_manager=None,
-        normalize_scores_in_batch: bool = False,
         use_format_reward: bool = False,
+        agent_output_dir: str = "./outputs",
+        diversity_reward_config: Dict[str, Any] = None,
         **kwargs
     ):
         self.tokenizer = tokenizer
         self.num_examine = num_examine
-        self.split = split
         self.reward_fn_extraction_type = reward_fn_extraction_type
         self.splitter = splitter
         self.output_path = output_path
@@ -988,12 +1087,18 @@ class GeneralIORewardManager:
         self.boxed_retry = boxed_retry
         self.judge_with_actor = judge_with_actor
         self.train_judge = train_judge
-        self.infer_together = infer_together
         self.prompt_manager = prompt_manager
-        self.normalize_scores_in_batch = normalize_scores_in_batch
         self.use_format_reward = use_format_reward
+        self.agent_output_dir = agent_output_dir
 
-        assert not self.train_judge or self.judge_with_actor, "judge_with_actor must be activated if train_judge is True"
+        self.diversity_filter = None
+        if diversity_reward_config and diversity_reward_config.get('enabled', False):
+            self.diversity_filter = DiversityFilter(
+                threshold=diversity_reward_config.get('threshold', 0.8),
+                penalty=diversity_reward_config.get('penalty', 0.5),
+                max_pool_size=diversity_reward_config.get('max_pool_size', 1000),
+                model_name=diversity_reward_config.get('model_name', 'sentence-transformers/all-MiniLM-L6-v2')
+            )
 
     def set_prompt_manager(self, prompt_manager):
         """Set or update the prompt_manager for this reward manager."""
@@ -1002,7 +1107,7 @@ class GeneralIORewardManager:
         # Initialize the external LLM client
         self.client = OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
-            api_key="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"
+            api_key=""
         )
 
     def extract_score_from_tags(self, text: str) -> List[float]:
@@ -1055,149 +1160,22 @@ class GeneralIORewardManager:
 
     def _generate_prompt_for_judge(self, question: str = None, answer: str = None, prompt_type: str = "answer") -> str:
         """Generate a prompt for the LLM to judge the quality of a question and response."""
-        assert prompt_type in ["answer", "question", "together"], f"Invalid prompt type: {prompt_type}"
+        assert prompt_type in ["answer", "question"], f"Invalid prompt type: {prompt_type}"
         
-        # Use prompt_manager if available, otherwise fall back to hardcoded prompts
-        if hasattr(self, 'prompt_manager') and self.prompt_manager is not None:
-            # Determine the correct judge type based on prompt_type
-            if prompt_type == "answer":
-                judge_type = "judge_answer"
-            elif prompt_type == "question":
-                judge_type = "judge_question"  
-            elif prompt_type == "together":
-                judge_type = "judge_together"
-            else:
-                raise ValueError(f"Invalid prompt type: {prompt_type}")
-            
-            # Get optimized prompt from prompt_manager
-            judge_prompt_template = self.prompt_manager.get_template(judge_type)
-            
-            # Fill in the template variables
-            if prompt_type == "answer":
-                prompt = judge_prompt_template.format(question=question, answer=answer)
-            elif prompt_type == "question":
-                prompt = judge_prompt_template.format(question=question)
-            elif prompt_type == "together":
-                prompt = judge_prompt_template.format(question=question, answer=answer)
-                
-            return prompt
-        
-        # Fallback to hardcoded prompts if prompt_manager is not available
-        prompt = ""
         if prompt_type == "answer":
-            prompt = f"""Please evaluate the following solution to a question/problem.
-
-Question/Problem: {question}
-
-Generated Solution: {answer}
-
-First, analyze the solution in the <think> and </think> tags below:
-
-<think>
-Consider the following criteria when evaluating:
-- Is the solution correct and accurate?
-- Is it complete and comprehensive?
-- Does it properly address the question?
-- Is the reasoning clear and logical?
-- Analyze any strengths and weaknesses
-- Determine what score is most appropriate
-
-[Write your detailed analysis here]
-</think>
-
-Then provide a score from 1 to 10 between <score> and </score> where:
-- 10 means the solution is perfect, complete, and correct
-- 8-9 means the solution is mostly correct but may have minor issues  
-- 5-7 means the solution is partially correct but has significant issues
-- 2-4 means the solution has some merit but is largely incorrect
-- 1 means the solution is completely wrong or irrelevant
-
-<score>X</score> (where X is an integer from 1 to 10)
-"""
+            judge_type = "judge_answer"
         elif prompt_type == "question":
-            prompt = f"""Please evaluate the quality of the following question generation.
-Question: {question}
-
-First, analyze the question in the <think> tags below:
-
-<think>
-Consider the following criteria when evaluating:
-- Is the question clear and well-formed?
-- Is it complete and understandable?
-- Does it make logical sense?
-- Is it relevant and appropriate?
-- Analyze any strengths and weaknesses
-- Determine what score is most appropriate
-
-[Write your detailed analysis here]
-</think>
-
-Then provide a score from 1 to 10 between <score> and </score> where:
-- 10 means the question is perfect, complete, and clear
-- 8-9 means the question is mostly clear but may have minor issues
-- 5-7 means the question is partially clear but has significant issues
-- 2-4 means the question has some merit but is largely unclear or irrelevant
-- 1 means the question is completely wrong or irrelevant (Also rate as 1 if the question is not a valid question)
-
-<score>X</score> (where X is an integer from 1 to 10)
-"""
-
-        elif prompt_type == "together":
-            prompt = f"""Please evaluate the quality of the following question and answer pair.
-Question: {question}
-
-Provided Answer: {answer}
-
-First, analyze the question in the <think> tags below:
-
-<think>
-Consider the following criteria when evaluating:
-- Is the question clear and well-formed?
-- Is it complete and understandable?
-- Does it make logical sense?
-- Is it relevant and appropriate?
-- Analyze any strengths and weaknesses
-- Determine what score is most appropriate
-
-[Write your detailed analysis here]
-</think>
-
-Then provide a score from 1 to 10 between <score> and </score> for the question where:
-- 10 means the question is perfect, complete, and clear
-- 8-9 means the question is mostly clear but may have minor issues
-- 5-7 means the question is partially clear but has significant issues
-- 2-4 means the question has some merit but is largely unclear or irrelevant
-- 1 means the question is completely wrong or irrelevant (Also rate as 1 if the question is not a valid question)
-
-<score>X</score> (where X is an integer from 1 to 10)
-
-Then analyze the answer in the <think> and </think> tags below:
-
-<think>
-Consider the following criteria when evaluating:
-- Is the answer correct and accurate?
-- Is it complete and comprehensive?
-- Does it properly address the question?
-- Is it well-structured and clear?
-- Analyze any strengths and weaknesses
-- Determine what score is most appropriate
-
-[Write your detailed analysis here]
-</think>
-
-Finally provide a score from 1 to 10 between <score> and </score> for the answerwhere:
-- 10 means the answer is perfect, complete, and correct
-- 8-9 means the answer is mostly correct but may have minor issues
-- 5-7 means the answer is partially correct but has significant issues
-- 2-4 means the answer has some merit but is largely incorrect
-- 1 means the answer is completely wrong or irrelevant
-
-<score>X</score> (where X is an integer from 1 to 10)
-
-Please make sure that your response contains only two pairs of <score> and </score> tags, one for the question and one for the answer. The question score always comes first, followed by the answer score.
-
-When you reference your own scores, you do not use the <score> and </score> tags. You only use these tags to provide the final scores for the question and answer.
-"""
+            judge_type = "judge_question"  
+        else:
+            raise ValueError(f"Invalid prompt type: {prompt_type}")
+        
+        judge_prompt_template = self.prompt_manager.get_template(judge_type)
+        
+        if prompt_type == "answer":
+            prompt = judge_prompt_template.format(question=question, answer=answer)
+        elif prompt_type == "question":
+            prompt = judge_prompt_template.format(question=question)
+            
         return prompt
     
     def rollout_with_actors(self, dataset_file: str, rollout_actor_wg) -> DataProto:
@@ -1240,21 +1218,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
         batch = batch.union(out_gen_batch)
 
         return batch
-    
-    def normalize_scores_in_batch(self, scores):
-        """
-            Normalize scores in a batch so that they fall into a normal distribution
-            Normalize scores that are below 8, higher scores often means success and has no need to be normalized
-            Case study needed here
-        """
-        scores = np.array(scores)
-        if np.std(scores) < 1e-5:
-            return [0.5] * len(scores)
-        normalized_scores = (scores - np.mean(scores)) / (np.std(scores) + 1e-5)
-        normalized_scores = 0.5 + 0.1 * normalized_scores
-        normalized_scores = np.clip(normalized_scores, 0.0, 1.0)
-        normalized_scores = np.round(normalized_scores)
-        return normalized_scores.tolist()
 
     def count_tags(self, text: str, tar: str) -> tuple:
         """Count given tar tags in the text."""
@@ -1300,7 +1263,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 open_tags_question, close_tags_question = self.count_tags(response_text, "question")
                 open_tags_answer, close_tags_answer = self.count_tags(response_text, "answer")
                 open_tags_type, close_tags_type = self.count_tags(response_text, "type")
-                # TODO: for now this part only supports generating with answer generation. However, we can just modify the prompt to enable refinement without answer generation
                 
                 correct_count = 3
                 if open_tags_question == close_tags_question:
@@ -1327,7 +1289,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 correct_count = 1
                 if open_tags_type == close_tags_type:
                     if open_tags_type == 0:
-                        # Prompt has no type, then there is no need for type format reward
                         type_tag_score = None
                     elif open_tags_type == correct_count:
                         type_tag_score = 1.0
@@ -1347,13 +1308,12 @@ When you reference your own scores, you do not use the <score> and </score> tags
 
     def _get_all_scores(self, data_dicts: List[Dict], rollout_actor_wg, n_samples: int, problem_type: str) -> List[float]:
         """
-        Get all scores for both gen and pred.
+        Get all scores for all tasks.
         """
         
         avg_gen_scores = []
         avg_pred_scores = []
         format_rewards = []
-
 
         try:                    
             format_rewards = self.calc_format_reward(data_dicts, problem_type)
@@ -1369,9 +1329,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
             try:
                 if not self.judge_with_actor:
                     for data_dict in data_dicts:
-                        avg_pred_scores.append(self._generate_llm_response(self._generate_prompt_for_pred(data_dict, self.infer_together))[0])
-                    if self.normalize_scores_in_batch:
-                        avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
+                        avg_pred_scores.append(self._generate_llm_response(self._generate_prompt_for_pred(data_dict))[0])
                     return avg_gen_scores, avg_pred_scores, format_rewards
 
                 if rollout_actor_wg is None:
@@ -1380,7 +1338,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 # Build evaluation prompts (one per answer)
                 eval_prompts = []
                 for data_dict in data_dicts:
-                    eval_text = self._generate_prompt_for_pred(data_dict, self.infer_together)
+                    eval_text = self._generate_prompt_for_pred(data_dict)
                     eval_prompts.append({
                         'prompt': [{'role': 'user', 'content': eval_text}],
                         'uid': data_dict['uid'],
@@ -1405,40 +1363,20 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 
                 # Collect raw judge outputs
                 uid2_a_scores = defaultdict(list)
-                
-                # Open file for dumping evaluation results
-                eval_file = open("eval.txt", "a")
 
                 for jb in judge_batch:
                     uid = jb.non_tensor_batch['uid']
                     text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
                     scores = self.extract_score_from_tags(text)
                     
-                    # Dump prompt and evaluation response to file separated by ===
-                    # eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
-                    # eval_file.write("\n==================\n")
-                    # eval_file.write(text)
-                    # eval_file.write("\n==================\n\n")
-                    # eval_file.flush()
-                    
                     print("Actor evaluation response:", text)
                     try:
-                        # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
-                        if self.infer_together:
-                            # assert len(scores) == 2, f"Expected two scores in the response for together, got: {text}"
-                            a = (scores[1] - 1) / 9.0
-                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
-                            continue
-                        else:
-                            a = (scores[0] - 1) / 9.0
-                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                        a = (scores[0] - 1) / 9.0
+                        uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
                     except:
                         print("Falling back to neutral scores.")
                         pass
                 
-                # Close the evaluation file
-                eval_file.close()
-
                 # Aggregate per original data_dict
                 for data_dict in data_dicts:
                     uid = data_dict['uid']
@@ -1451,11 +1389,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 print(f"Error in pred score computation: {e}")
                 avg_pred_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
 
-            if self.normalize_scores_in_batch:
-                avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
             return avg_gen_scores, avg_pred_scores, format_rewards
         
-        if problem_type.startswith("gen") and not self.infer_together:
+        if problem_type.startswith("gen"):
             try:
                 if not self.judge_with_actor:
                     for data_dict in data_dicts:
@@ -1493,31 +1429,18 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     # Collect raw judge outputs
                     uid2_q_scores = defaultdict(list)
 
-                    # Open file for dumping evaluation results
-                    eval_file = open("eval.txt", "a")
                     for jb in judge_batch:
                         uid = jb.non_tensor_batch['uid']
                         text = self.tokenizer.decode(jb.batch['responses'], skip_special_tokens=True)
                         scores = self.extract_score_from_tags(text)
                         
-                        # Dump prompt and evaluation response to file separated by ===
-                        # eval_file.write(uid_to_prompt.get(uid, "Prompt not found"))
-                        # eval_file.write("\n==================\n")
-                        # eval_file.write(text)
-                        # eval_file.write("\n==================\n\n")
-                        # eval_file.flush()
-                        
                         print("Actor evaluation response:", text)
                         try:
-                            # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
                             q = (scores[0] - 1) / 9.0
                             uid2_q_scores[uid].append(min(1.0, max(0.0, q)))
                         except:
                             print("Falling back to neutral scores.")
                             pass
-
-                    # Close evaluation file
-                    eval_file.close()
 
                     # Aggregate per original data_dict
                     for data_dict in data_dicts:
@@ -1530,15 +1453,10 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 print(f"Error in gen score computation: {e}")
                 avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
 
-        # check rollout actor for gen and together problems
         if rollout_actor_wg is None:
-            print(f"[DEBUG] rollout_actor_wg is None, returning default scores for problem_type: {problem_type}")
             return [0.5] * len(data_dicts), [0.5] * len(data_dicts), format_rewards  # Default neutral difficulty score
 
-        print(f"[DEBUG] rollout_actor_wg is not None, proceeding with actual scoring for problem_type: {problem_type}")
-
         try:
-            # Define helper function for extracting questions
             import re
             def extract_question(text):
                 pattern = r'<question>(.*?)</question>'
@@ -1552,11 +1470,12 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 if question != []:
                     question = question[-1]
                 else:
+                    # TODO(cyx): fallback maybe?
                     question = "The question is a invalid question"
                     PrettyPrinter.status("No question tags found in response", "", "warning")
                 
-                #question = data_dict.get('question', '')
                 prompt_text = f"Please solve the following question/problem:\n\n{question}"
+                # TODO(cyx): Maybe we can use the same prompt for solver batch, though the effect may be minor
                 prompts_dict = {
                     'prompt': [{'role': 'user', 'content': prompt_text}],
                     'uid': data_dict['uid'],
@@ -1596,11 +1515,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 eval_prompts = []
                 for uid, resp_list in responses_by_uid.items():
                     for idx, resp in enumerate(resp_list):
-                        eval_text = self._generate_prompt_for_judge(resp["question"], resp["response"], prompt_type="together" if self.infer_together else "answer")
-                        if self.infer_together:
-                            PrettyPrinter.section_header(f"Creating prompt for actor evaluation of question and answer for difficulty score: {resp['question']}\n\n{resp['response']}")
-                        else:
-                            PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score:\n\n[Question]: {resp['question']}\n\n[Answer]: {resp['response']}")
+                        eval_text = self._generate_prompt_for_judge(resp["question"], resp["response"], prompt_type="answer")
+                        PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score:\n\n[Question]: {resp['question']}\n\n[Answer]: {resp['response']}")
                         eval_prompts.append({
                             'prompt': [{'role': 'user', 'content': eval_text}],
                             'uid': uid,
@@ -1627,16 +1543,8 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     scores = self.extract_score_from_tags(text)
                     print("Actor evaluation response:", text)
                     try:
-                        if self.infer_together:
-                            # assert len(scores) == 2, f"Expected two scores in the response, got: {text}"
-                            q = (scores[0] - 1) / 9.0
-                            a = (scores[1] - 1) / 9.0
-                            uid2_q_scores[uid].append(min(1.0, max(0.0, q)))
-                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
-                        else:
-                            # assert len(scores) == 1, f"Expected one score in the response, got: {text}"
-                            a = (scores[0] - 1) / 9.0
-                            uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
+                        a = (scores[0] - 1) / 9.0
+                        uid2_a_scores[uid].append(min(1.0, max(0.0, a)))
                     except:
                         print("Falling back to neutral scores.")
                         pass
@@ -1648,11 +1556,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         avg_pred_scores.append(float(np.mean(uid2_a_scores[uid])))
                     else:
                         avg_pred_scores.append(0.5)
-                    if self.infer_together:
-                        if uid2_q_scores.get(uid):
-                            avg_gen_scores.append(float(np.mean(uid2_q_scores[uid])))
-                        else:
-                            avg_gen_scores.append(0.5)
             else:
                 # Calculate average scores for each question
                 for data_dict in data_dicts:
@@ -1665,46 +1568,27 @@ When you reference your own scores, you do not use the <score> and </score> tags
                             eval_prompt = self._generate_prompt_for_judge(
                                 response_data["question"],
                                 response_data["response"],
-                                prompt_type = "together" if self.infer_together else "answer",
+                                prompt_type="answer",
                             )
-                            if self.infer_together:
-                                PrettyPrinter.section_header(f"Creating prompt for actor evaluation of question and answer for difficulty score:: {response_data['question']}\n\n{response_data['response']}")
-                            else:
-                                PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score:\n\n[Question]: {response_data['question']}\n\n[Answer]: {response_data['response']}")
+                            PrettyPrinter.section_header(f"Creating prompt for actor evaluation of answer for difficulty score:\n\n[Question]: {response_data['question']}\n\n[Answer]: {response_data['response']}")
                             
                             scores = self._generate_llm_response(eval_prompt)
                             try:
-                                if not self.infer_together:
-                                    # assert len(scores) == 1, f"Expected one score in the response, got: {scores}"
-                                    pred_scores.append(scores[0])
-                                else:
-                                    # assert len(scores) == 2, f"Expected two scores in the response, got: {scores}"
-                                    gen_scores.append(scores[0])
-                                    pred_scores.append(scores[1])
+                                pred_scores.append(scores[0])
                             except:
+                                print("Falling back to neutral scores.")
                                 pass
                         
                         avg_pred_score = np.mean(pred_scores) if pred_scores else 0.5
                         avg_pred_scores.append(avg_pred_score)
-                        if self.infer_together:
-                            avg_gen_score = np.mean(gen_scores) if gen_scores else 0.5
-                            avg_gen_scores.append(avg_gen_score)
                     else:
                         avg_pred_scores.append(0.5)
-                        if self.infer_together:
-                            avg_gen_scores.append(0.5)
                         
         except Exception as e:
             import traceback
             print(f"Error in solver score computation: {e}")
             print(f"Error traceback: {traceback.format_exc()}")
             avg_pred_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
-            if self.infer_together:
-                avg_gen_scores = [0.5] * len(data_dicts)  # Fallback to neutral scores
-        
-        if self.normalize_scores_in_batch:
-            avg_gen_scores = self.normalize_scores_in_batch(avg_gen_scores)
-            avg_pred_scores = self.normalize_scores_in_batch(avg_pred_scores)
 
         return avg_gen_scores, avg_pred_scores, format_rewards
      
@@ -1732,7 +1616,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
                 
             print(f"LLM Response: {result}")  # Debugging output
                 
-            # Use the new extract_score_from_tags function
             extracted_scores = self.extract_score_from_tags(result)
             if extracted_scores:
                 # Convert scores to 0-1 range
@@ -1743,7 +1626,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                         normalized_score = (score - 1) / 9.0
                         normalized_scores.append(min(1.0, max(0.0, normalized_score)))
                     else:
-                        # If score is already normalized or in different range, keep as is
+                        # If score is already normalized or in different range, keep it this way
                         normalized_scores.append(min(1.0, max(0.0, score)))
                 return normalized_scores
             else:
@@ -1765,7 +1648,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
             print(f"Error in LLM response generation: {e}")
             return [0.0]
 
-    def _generate_prompt_for_gen(self, data_dict: Dict, answer=None) -> str:
+    def _generate_prompt_for_gen(self, data_dict: Dict) -> str:
         """Generate the LLM as judge prompt for evaluating the question generation quality."""
         def extract_question(text):
             pattern = r'<question>(.*?)</question>'
@@ -1777,50 +1660,18 @@ When you reference your own scores, you do not use the <score> and </score> tags
         else:
             question = "This is not a valid question."
 
-        if answer:
-            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="together")
-            PrettyPrinter.code_block(f"Generated prompt for question generation evaluation with paired answer:\n{prompt}")
-        else:
-            prompt = self._generate_prompt_for_judge(question, None, prompt_type="question")
-            PrettyPrinter.code_block(f"Generated prompt for question generation evaluation:\n{prompt}")
+        prompt = self._generate_prompt_for_judge(question, None, prompt_type="question")
+        PrettyPrinter.code_block(f"Generated prompt for question generation evaluation:\n{prompt}")
         return prompt
 
-    def _generate_prompt_for_pred(self, data_dict: Dict, infer_together=False) -> str:
+    def _generate_prompt_for_pred(self, data_dict: Dict) -> str:
         """Generate the LLM prompt for 'pred' type problems."""
         question = data_dict.get('question', '')
         answer = data_dict.get('answer', data_dict.get('generation', '')).split('[Your final answer to the question, structured and clear, without restating the question]')[-1]
 
-        if infer_together:
-            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="together")
-            PrettyPrinter.code_block(f"Generated prompt for answer evaluation with question:\n{prompt}")
-        else:
-            prompt = self._generate_prompt_for_judge(question, answer, prompt_type="answer")
-            PrettyPrinter.code_block(f"Generated prompt for answer evaluation:\n{prompt}")
+        prompt = self._generate_prompt_for_judge(question, answer, prompt_type="answer")
+        PrettyPrinter.code_block(f"Generated prompt for answer evaluation:\n{prompt}")
         return prompt
-
-    def _compute_score_for_gen(self, data_dict: Dict, external_llm_score: float, solver_avg_score: float) -> float:
-        """For 'gen' problem type, combine LLM score and solver score."""
-        return 0.5 * external_llm_score + 0.5 * (1 - solver_avg_score)
-
-    def _compute_score_for_pred(self, external_llm_score: float) -> float:
-        """For 'pred' problem type, use the LLM score as the final score."""
-        return external_llm_score
-
-    def _evaluate_gen(self, data_dict: Dict, solver_avg_score: float, rollout_actor_wg=None) -> float:
-        """Evaluate a 'gen' problem type."""
-        prompt = self._generate_prompt_for_gen(data_dict)
-        external_llm_score = self._get_evaluation_score(prompt, rollout_actor_wg)
-        final_score = self._compute_score_for_gen(data_dict, external_llm_score, solver_avg_score)
-        return final_score
-
-    def _evaluate_pred(self, data_dict: Dict, rollout_actor_wg=None) -> float:
-        """Evaluate a 'pred' problem type."""
-        prompt = self._generate_prompt_for_pred(data_dict)
-        external_llm_score = self._get_evaluation_score(prompt, rollout_actor_wg)
-        final_score = self._compute_score_for_pred(external_llm_score)
-        return final_score
-        final_score = self._compute_score_for_pred(external_llm_score)
-        return final_score
 
     def _get_data_dict(self, data_item: DataProtoItem, problem_type: str, banned_words: List[str], uid: str, banned_assertion_keywords: List[str]) -> Dict:
         """
@@ -1910,8 +1761,9 @@ When you reference your own scores, you do not use the <score> and </score> tags
         """
         Main method for computing rewards for GeneralIO tasks.
         
-        For 'gen' type: Uses LLM judge score + difficulty score (1 - solver average)
-        For 'pred' type: Uses LLM judge score directly
+        For 'gen' type: Uses LLM judge score + difficulty score (1 - solver average) + format reward
+        For 'pred' type: Uses LLM judge score + format reward
+        For 'judge' type: Uses format reward only
         
         Returns:
             reward_tensor: Tensor of rewards for each sequence
@@ -1919,7 +1771,6 @@ When you reference your own scores, you do not use the <score> and </score> tags
             valid_questions: List of valid questions/responses for dataset expansion
         """
 
-        # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
@@ -1944,14 +1795,30 @@ When you reference your own scores, you do not use the <score> and </score> tags
         if problem_type.startswith('gen') and rollout_actor_wg is not None:
             PrettyPrinter.section_header("Computing Generation Rewards for GeneralIO Tasks")
             
-            # Step 1: Get solver average scores and llm scores(possibly) from actor model
-            print(f"[DEBUG] Getting all scores for problem_type: {problem_type}, rollout_actor_wg is None: {rollout_actor_wg is None}")
             llm_scores, solver_avg_scores, format_rewards = self._get_all_scores(data_dicts, rollout_actor_wg, n_samples, problem_type)
             print(f"[DEBUG] Got scores - LLM scores: {llm_scores[:3]}..., Solver avg scores: {solver_avg_scores[:3]}...")
-            
+
+            # Extract questions for diversity filtering
+            def extract_question_text(text):
+                pattern = r'<question>(.*?)</question>'
+                matches = re.findall(pattern, text, re.DOTALL)
+                return matches[-1].strip() if matches else ""
+
+            generated_questions = []
+            for data_dict in data_dicts:
+                q = extract_question_text(data_dict.get('generation', ''))
+                if q:
+                    generated_questions.append(q)
+                else:
+                    generated_questions.append("")
+
+            diversity_penalties = [0.0] * len(data_dicts)
+            if self.diversity_filter:
+                diversity_penalties = self.diversity_filter.filter_and_update(generated_questions)
+
             for i, data_dict in enumerate(data_dicts):
                 valid_response_length = data_dict['valid_response_length']
-                
+
                 def extract_question(text):
                     pattern = r'<question>(.*?)</question>'
                     matches = re.findall(pattern, text, re.DOTALL)
@@ -1966,15 +1833,14 @@ When you reference your own scores, you do not use the <score> and </score> tags
 
                 if question:
                     difficulty_score = 1 - solver_avg_scores[i]
-                    # difficulty_score = int(solver_avg_scores[i] < 0.7) # strict version for difficulty_score
-                    final_score = llm_scores[i] / 3 + difficulty_score / 3 + format_rewards[i] / 3
-                    
-                    print(f"[DEBUG] Item {i}: solver_avg={solver_avg_scores[i]:.4f}, difficulty={difficulty_score:.4f}, llm={llm_scores[i]:.4f}, format={format_rewards[i]:.4f}, final={final_score:.4f}")
-                    
+                    diversity_penalty = diversity_penalties[i]
+                    final_score = llm_scores[i] / 3 + difficulty_score / 3 + format_rewards[i] / 3 - diversity_penalty
+
                     reward_tensor[i, valid_response_length - 1] = final_score
                     all_scores['llm_judge_score'].append(llm_scores[i])
                     all_scores['difficulty_score'].append(difficulty_score)
                     all_scores['format_reward'].append(format_rewards[i])
+                    all_scores['diversity_penalty'].append(diversity_penalty)
                     all_scores['combined_score'].append(final_score)
                     if llm_scores[i] >= 0.7:
                         # Only add question to dataset if it is valid
@@ -1989,7 +1855,7 @@ When you reference your own scores, you do not use the <score> and </score> tags
                     else:
                         # Override scores if not valid
                         # Dump bad question to file
-                        with open('bad_question.txt', 'a') as f:
+                        with open(f'{self.agent_output_dir}/low_quality_question.txt', 'a') as f:
                             f.write(f"Question: {question}\n")
                             f.write("==============================================\n")
                             if 'thought' in data_dict:
@@ -2022,26 +1888,16 @@ When you reference your own scores, you do not use the <score> and </score> tags
             for i, data_dict in enumerate(data_dicts):
                 valid_response_length = data_dict['valid_response_length']
                 
-                if self.split == 'train':
-                    reward_tensor[i, valid_response_length - 1] = 0.5 * llm_scores[i] + 0.5 * format_rewards[i]
-                    valid_data.append({
-                        'question': data_dict.get('question', ''),
-                        'answer': data_dict.get('answer', ''),
-                        'thought': data_dict.get('thought', ''),
-                        'reward_model': {
-                            'ground_truth': data_dict.get('ground_truth', ''),
-                        },
-                        'uid': data_dict['uid'],
-                    })
-                elif self.split == 'test':
-                    reward_tensor[i, valid_response_length - 1] = 0.5 * llm_scores[i] + 0.5 * format_rewards[i]
-                    # test split pairs not saved
-                    # valid_data.append({
-                    #     'question': data_dict.get('question', ''),
-                    #     'answer': data_dict.get('answer', ''),
-                    #     'thought': data_dict.get('thought', ''),
-                    #     'uid': data_dict['uid'],
-                    # })
+                reward_tensor[i, valid_response_length - 1] = 0.5 * llm_scores[i] + 0.5 * format_rewards[i]
+                valid_data.append({
+                    'question': data_dict.get('question', ''),
+                    'answer': data_dict.get('answer', ''),
+                    'thought': data_dict.get('thought', ''),
+                    'reward_model': {
+                        'ground_truth': data_dict.get('ground_truth', ''),
+                    },
+                    'uid': data_dict['uid'],
+                })
                 
                 all_scores['llm_judge_score'].append(llm_scores[i])
                 all_scores['format_reward'].append(format_rewards[i])
@@ -2078,11 +1934,11 @@ def evaluate_single_item(args):
     (item_data, model_name, temperature, max_tokens, top_p, stream, api_keys) = args
     
     try:
-        # 从提供的API keys中随机选择一个来平衡负载
+        # Random choose an api to balance workload
         import random
+        import time
         api_key = random.choice(api_keys)
         
-        # Create a new OpenAI client for this thread
         client = OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=api_key,
@@ -2095,7 +1951,6 @@ def evaluate_single_item(args):
         ground_truth = item_data['ground_truth']
         metric_type = item_data['metric_type']
         
-        # Generate evaluation prompt
         if metric_type == "math_accuracy":
             prompt = f"""Please evaluate whether the following mathematical answer is correct.
 
@@ -2175,7 +2030,6 @@ Then determine if the model's answer is truthful and accurate:
 <answer>TRUE</answer> or <answer>FALSE</answer>"""
 
         else:
-            # General accuracy evaluation
             prompt = f"""Please evaluate whether the answer is correct based on the ground truth answer.
 
 Question: {question}
@@ -2199,23 +2053,41 @@ Then determine if the model's answer is correct:
 
 <answer>TRUE</answer> or <answer>FALSE</answer>"""
 
-        # Call LLM for evaluation
-        completion = client.chat.completions.create(
-            model=model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=temperature,
-            top_p=top_p,
-            max_tokens=max_tokens,
-            stream=stream
-        )
+        max_inner_retries = 5
+        result = ""
+        last_exception = None
+
+        for attempt in range(max_inner_retries):
+            try:
+                completion = client.chat.completions.create(
+                    model=model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=temperature,
+                    top_p=top_p,
+                    max_tokens=max_tokens,
+                    stream=stream
+                )
+                
+                if stream:
+                    result = ""
+                    for chunk in completion:
+                        if chunk.choices[0].delta.content is not None:
+                            result += chunk.choices[0].delta.content
+                else:
+                    result = completion.choices[0].message.content.strip()
+                
+                break # Success
+            except Exception as e:
+                last_exception = e
+                print(f"Attempt {attempt+1}/{max_inner_retries} failed for item {item_data.get('index', 'unknown')}: {str(e)}")
+                if attempt < max_inner_retries - 1:
+                    time.sleep(1 * (2 ** attempt)) # Exponential backoff
         
-        if stream:
-            result = ""
-            for chunk in completion:
-                if chunk.choices[0].delta.content is not None:
-                    result += chunk.choices[0].delta.content
-        else:
-            result = completion.choices[0].message.content.strip()
+        if not result and last_exception:
+             raise last_exception
+        if not result and not last_exception:
+             # Just in case loop finishes without exception but result is somehow empty (unlikely with break)
+             pass 
         
         # Extract TRUE/FALSE from <answer></answer> tags
         answer_match = re.search(r'<answer>(TRUE|FALSE)</answer>', result, re.IGNORECASE)
@@ -2260,6 +2132,7 @@ class BenchmarkEvaluationRewardManager:
         stream: bool = False,
         max_workers: int = 15,  # Number of parallel processes
         api_keys: List[str] = None,
+        dump_eval_path: str = None,
         **kwargs
     ):
         self.tokenizer = tokenizer
@@ -2268,188 +2141,39 @@ class BenchmarkEvaluationRewardManager:
         self.max_tokens = max_tokens
         self.top_p = top_p
         self.stream = stream
-        self.max_workers = min(max_workers, mp.cpu_count())  # Don't exceed CPU count
-        
-        # 支持多个API keys
-        if api_keys is None:
-            api_keys = ["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"]
+        self.max_workers = min(max_workers, mp.cpu_count())
+        self.dump_eval_path = dump_eval_path
         
         self.api_keys = api_keys
         
-        # 创建多个clients
         self.clients = [OpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
             api_key=key,
             timeout=120,
             max_retries=5
-        ) for key in self.api_keys]
+        ) for key in self.api_keys] if self.api_keys else []
         
-        # 创建循环迭代器和锁
-        self.client_cycle = itertools.cycle(self.clients)
-        self.client_lock = threading.Lock()
-        
-        # 保持兼容性的单一client（使用第一个）
-        self.client = self.clients[0]
-        
+        if self.clients:
+            self.client_cycle = itertools.cycle(self.clients)
+            self.client_lock = threading.Lock()
+            self.client = self.clients[0]
+        else:
+            self.client = None
+    
     def _get_next_client(self):
-        """线程安全地获取下一个client"""
         with self.client_lock:
             return next(self.client_cycle)
-        
-    def _generate_llm_evaluation(self, model_answer: str, ground_truth: str, metric_type: str) -> float:
-        """Use LLM to evaluate if model answer matches ground truth."""
-        
-        if metric_type == "math_accuracy":
-            prompt = f"""Please evaluate whether the following mathematical answer is correct.
-
-Ground Truth Answer: {ground_truth}
-
-Model's Answer: {model_answer}
-
-First, analyze both answers in the <think> tags below:
-
-<think>
-Compare the mathematical content of both answers:
-- Do they arrive at the same final numerical result?
-- Is the reasoning correct in the model's answer?
-- Are there any mathematical errors?
-- Do they represent the same solution even if expressed differently?
-
-[Write your detailed analysis here]
-</think>
-
-Then determine if the model's answer is correct:
-- TRUE means the model's answer is mathematically correct and matches the ground truth
-- FALSE means the model's answer is mathematically incorrect or doesn't match the ground truth
-
-<answer>TRUE</answer> or <answer>FALSE</answer>"""
-
-        elif metric_type == "multiple_choice_accuracy":
-            prompt = f"""Please evaluate whether the multiple choice answer is correct.
-
-Correct Answer: {ground_truth}
-
-Model's Answer: {model_answer}
-
-First, analyze the answers in the <think> tags below:
-
-<think>
-Compare the answers:
-- Does the model select the same choice letter as the ground truth?
-(If the model did not provide a letter, count it as incorrect)
-
-[Write your detailed analysis here]
-</think>
-
-Then determine if the model's answer is correct:
-- TRUE means the model selected the exact correct choice
-- FALSE means the model selected the wrong choice
-
-<answer>TRUE</answer> or <answer>FALSE</answer>"""
-
-        elif metric_type == "truthfulness_accuracy":
-            prompt = f"""Please evaluate the truthfulness and accuracy of the answer.
-
-Expected Answer: {ground_truth}
-
-Model's Answer: {model_answer}
-
-First, analyze the answers in the <think> tags below:
-
-<think>
-Evaluate the truthfulness:
-- Is the model's answer factually accurate?
-- Does it align with the expected truthful response?
-- Are there any misleading or false statements?
-
-[Write your detailed analysis here]
-</think>
-
-Then determine if the model's answer is truthful and accurate:
-- TRUE means the answer is truthful and accurate
-- FALSE means the answer contains false or misleading information
-
-<answer>TRUE</answer> or <answer>FALSE</answer>"""
-
-        else:
-            # General accuracy evaluation
-            prompt = f"""Please evaluate whether the answer is correct and appropriate.
-
-Expected Answer: {ground_truth}
-
-Model's Answer: {model_answer}
-
-First, analyze the answers in the <think> tags below:
-
-<think>
-Compare the answers:
-- Does the model's answer provide accurate content?
-- Is the content appropriate and relevant?
-- How well does it match the expected response?
-
-[Write your detailed analysis here]
-</think>
-
-Then determine if the model's answer is correct:
-- TRUE means the answer is correct and appropriate
-- FALSE means the answer is incorrect or inappropriate
-
-<answer>TRUE</answer> or <answer>FALSE</answer>"""
-
-        try:
-            PrettyPrinter.code_block(f"Generated LLM Evaluation Prompt:\n{prompt}")
-            
-            # 使用线程安全的多client机制
-            client = self._get_next_client()
-            completion = client.chat.completions.create(
-                model=self.model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=self.temperature,
-                top_p=self.top_p,
-                max_tokens=self.max_tokens,
-                stream=self.stream
-            )
-            
-            if self.stream:
-                result = ""
-                for chunk in completion:
-                    if chunk.choices[0].delta.content is not None:
-                        result += chunk.choices[0].delta.content
-            else:
-                result = completion.choices[0].message.content.strip()
-            
-            PrettyPrinter.code_block(f"LLM Evaluation Result:\n{result}")
-            # Extract TRUE/FALSE from <answer></answer> tags
-            answer_match = re.search(r'<answer>(TRUE|FALSE)</answer>', result, re.IGNORECASE)
-            if answer_match:
-                answer = answer_match.group(1).upper()
-                return 1.0 if answer == "TRUE" else 0.0
-            else:
-                # Fallback: look for TRUE/FALSE anywhere in the response
-                if re.search(r'\bTRUE\b', result, re.IGNORECASE):
-                    return 1.0
-                elif re.search(r'\bFALSE\b', result, re.IGNORECASE):
-                    return 0.0
-                else:
-                    # If no clear TRUE/FALSE found, default to FALSE (incorrect)
-                    return 0.0
-                
-        except Exception as e:
-            print(f"Error in LLM evaluation: {e}")
-            return 0.0
     
     def _extract_model_answer(self, generation: str) -> str:
         """Extract the model's answer from the generation."""
-        # Try to extract answer from common patterns
         generation = generation.strip()
         
-        # Look for final answer patterns
         patterns = [
             r"<answer>(.*?)</answer>",
             r"(?:the answer is|answer:|final answer:)\s*(.+?)(?:\n|$)",
             r"(?:therefore|thus|so),?\s*(.+?)(?:\n|$)",
-            r"\$\$(.+?)\$\$",  # LaTeX math
-            r"####\s*(.+?)(?:\n|$)",  # GSM8K format
+            r"\$\$(.+?)\$\$",
+            r"####\s*(.+?)(?:\n|$)",
         ]
         
         for pattern in patterns:
@@ -2466,12 +2190,6 @@ Then determine if the model's answer is correct:
         
         # Fallback to first 100 characters
         return generation[:100] + "..." if len(generation) > 100 else generation
-    
-    def _get_question_from_prompt(self, prompt_data: List[Dict]) -> str:
-        """Extract question from prompt data."""
-        if prompt_data and len(prompt_data) > 0:
-            return prompt_data[0].get('content', '')
-        return ''
     
     def __call__(
         self,
@@ -2492,20 +2210,56 @@ Then determine if the model's answer is correct:
             all_scores = defaultdict(list)
             correct_predictions = []
             
-            PrettyPrinter.section_header("Benchmark Evaluation (Multi-process)")
+            PrettyPrinter.section_header("Benchmark Evaluation")
             
             data_length = len(data)
+            
+            # --- DUMP MODE START ---
+            if self.dump_eval_path:
+                PrettyPrinter.status("Info", f"Dumping evaluation data to {self.dump_eval_path}", "info")
+                dump_items = []
+                for i in range(data_length):
+                    try:
+                        data_item = data[i]
+                        question = data_item.non_tensor_batch.get('question', '')
+                        ground_truth = data_item.non_tensor_batch.get('answer', '')
+                        data_source = data_item.non_tensor_batch.get('data_source', 'unknown')
+                        extra_info = data_item.non_tensor_batch.get('extra_info', {})
+                        metric_type = extra_info.get('metric', 'general_accuracy')
+                        
+                        response_ids = data_item.batch['responses']
+                        generation = self.tokenizer.decode(response_ids, skip_special_tokens=True)
+                        model_answer = self._extract_model_answer(generation)
+                        
+                        dump_items.append({
+                            'question': question,
+                            'model_answer': model_answer,
+                            'ground_truth': ground_truth,
+                            'data_source': data_source,
+                            'metric_type': metric_type,
+                            'generation': generation
+                        })
+                    except Exception as e:
+                        print(f"Error dumping item {i}: {e}")
+
+                os.makedirs(os.path.dirname(self.dump_eval_path), exist_ok=True)
+                with open(self.dump_eval_path, 'a') as f: # Append mode
+                    for item in dump_items:
+                        f.write(json.dumps(item) + '\n')
+                
+                PrettyPrinter.status("Success", f"Dumped {len(dump_items)} items.", "success")
+                return reward_tensor, {} # Return empty metrics/zeros
+            # --- DUMP MODE END ---
+
             PrettyPrinter.status("Info", f"Processing {data_length} items with {self.max_workers} threads", "info")
             
-            # Prepare evaluation tasks
             evaluation_tasks = []
-            item_info = []  # Store original item info for later processing
+            item_info = []
             
             for i in range(data_length):
                 try:
                     data_item = data[i]
                     
-                    # Extract information
                     prompt_data = data_item.non_tensor_batch.get('prompt', [])
                     question = data_item.non_tensor_batch.get('question', '')
                     ground_truth = data_item.non_tensor_batch.get('answer', '')
@@ -2527,7 +2281,6 @@ Then determine if the model's answer is correct:
                     #     f.write(f"Data Source: {data_source}\n")
                     #     f.write("-" * 80 + "\n")
 
-                    # Store item info for later processing
                     valid_response_length = data_item.batch['attention_mask'][len(data_item.batch['prompts']):].sum()
                     item_info.append({
                         'index': i,
@@ -2560,7 +2313,6 @@ Then determine if the model's answer is correct:
                     
                 except Exception as e:
                     PrettyPrinter.status("Error", f"Failed to prepare item {i}: {str(e)}", "error")
-                    # Add default task to maintain indexing
                     task_data = {
                         'index': i,
                         'model_answer': '',
@@ -2595,19 +2347,38 @@ Then determine if the model's answer is correct:
                 # Use threading for I/O-bound LLM API calls (more efficient than multiprocessing)
                 with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
                     future_to_index = {executor.submit(evaluate_single_item, task): task[0]['index'] for task in evaluation_tasks}
-                    
+
                     for future in as_completed(future_to_index):
+                        index = future_to_index[future]
                         try:
                             result = future.result()
                             evaluation_results[result['index']] = result
                         except Exception as e:
-                            index = future_to_index[future]
-                            PrettyPrinter.status("Error", f"Evaluation failed for item {index}: {str(e)}", "error")
-                            evaluation_results[index] = {
-                                'index': index,
-                                'score': 0.0,
-                                'evaluation_result': f"Thread error: {str(e)}"
-                            }
+                            # If a thread task failed, attempt synchronous retries to mitigate transient errors
+                            PrettyPrinter.status("Warning", f"Thread evaluation failed for item {index}: {str(e)}. Attempting retries...", "warning")
+                            retry_result: Optional[Dict] = None
+                            max_retries = 3
+                            for attempt in range(1, max_retries + 1):
+                                try:
+                                    # Exponential backoff before retrying
+                                    backoff = 0.5 * (2 ** (attempt - 1))
+                                    time.sleep(backoff)
+                                    retry_result = evaluate_single_item(evaluation_tasks[index])
+                                    # If successful, store and break
+                                    evaluation_results[retry_result['index']] = retry_result
+                                    PrettyPrinter.status("Info", f"Retry succeeded for item {index} on attempt {attempt}", "info")
+                                    break
+                                except Exception as retry_e:
+                                    PrettyPrinter.status("Warning", f"Retry {attempt} failed for item {index}: {str(retry_e)}", "warning")
+                                    retry_result = None
+
+                            if retry_result is None:
+                                PrettyPrinter.status("Error", f"Evaluation failed for item {index} after {max_retries} retries: {str(e)}", "error")
+                                evaluation_results[index] = {
+                                    'index': index,
+                                    'score': 0.0,
+                                    'evaluation_result': f"Thread error after retries: {str(e)}"
+                                }
             else:
                 # Single-threaded fallback
                 for task in evaluation_tasks:
@@ -2620,19 +2391,16 @@ Then determine if the model's answer is correct:
                 result = evaluation_results.get(i, {'score': 0.0})
                 score = result['score']
                 
-                # Store score in reward tensor
                 valid_response_length = info['valid_response_length']
                 if valid_response_length > 0:
                     reward_tensor[i, valid_response_length - 1] = score
                 else:
                     reward_tensor[i, -1] = score
                 
-                # Track metrics
                 all_scores['accuracy'].append(score)
                 all_scores[f'accuracy_{info["data_source"]}'].append(score)
                 all_scores[f'accuracy_{info["metric_type"]}'].append(score)
                 
-                # Count as correct if score is 1.0 (TRUE)
                 if score == 1.0:
                     correct_predictions.append({
                         'question': info['question'],
@@ -2678,6 +2446,5 @@ Then determine if the model's answer is correct:
             import traceback
             traceback.print_exc()
             
-            # Return empty results on error
             reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
             return reward_tensor, {}

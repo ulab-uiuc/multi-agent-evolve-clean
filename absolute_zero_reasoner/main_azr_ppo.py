@@ -61,10 +61,10 @@ def load_api_keys(api_file_path: str = "api.json") -> List[str]:
         
         print(f"Warning: API file {api_file_path} not found in any expected locations")
         print(f"Searched in: {possible_paths}")
-        return ["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"]
+        return [""]
     except Exception as e:
         print(f"Error loading API keys: {e}")
-        return ["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"]
+        return [""]
 
 
 @hydra.main(config_path='configs', config_name='azr_ppo_trainer', version_base=None)
@@ -127,29 +127,24 @@ class TaskRunner:
         
         # Set other directories
         config.trainer.output_dir = experiment_base_dir
-        config.benchmark_tracking_dir = f"{experiment_base_dir}/benchmark_tracking"
-        config.prompt_optimization_dir = f"{experiment_base_dir}/prompt_optimization"
+        config.agent_output_dir = f"{experiment_base_dir}/agent_output"
         
         # Set checkpoint directory
-        config.trainer.default_local_dir = f"/data/yidingw/cyx/checkpoints/general/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
-        if hasattr(config, 'trainer') and hasattr(config.trainer, 'resume_path'):
+        config.trainer.default_local_dir = f"{config.trainer.default_local_dir}/{date_part}/{time_part}_{config.trainer.project_name}_{config.trainer.experiment_name}"
+        if hasattr(config, 'trainer') and hasattr(config.trainer, 'resume_dir'):
+            # resume_mode has three choice: disable, auto and resume_path
+            # disable cleans dataset and starts from scratch
+            # auto resumes from the latest global_step checkpoint, use for resuming training
+            # resume_path allows you to continue from any desired checkpoint, use for evaluation or resuming training. You have to give a specific global_step in resume_from_path
             if hasattr(config, 'trainer') and hasattr(config.trainer, 'resume_mode') and config.trainer.resume_mode != "disable":
-                print("[DEBUG]: using resume_path to set default local directory!")
-                config.trainer.default_local_dir = config.trainer.resume_path
+                print("[DEBUG]: using resume_dir to set default local directory!")
+                config.trainer.default_local_dir = config.trainer.resume_dir
                 print("[DEBUG]: local_dir set to ", config.trainer.default_local_dir)
         
-        # Set output directories for prompt optimization and benchmark tracking
-        if hasattr(config, 'azr') and hasattr(config.azr, 'prompt_optimization'):
-            config.azr.prompt_optimization.output_dir = config.prompt_optimization_dir
-        if hasattr(config, 'azr') and hasattr(config.azr, 'benchmark_tracking'):
-            config.azr.benchmark_tracking.output_dir = config.benchmark_tracking_dir
-        
-        # Create directories if they don't exist
         os.makedirs(experiment_base_dir, exist_ok=True)
-        os.makedirs(config.benchmark_tracking_dir, exist_ok=True)
-        os.makedirs(config.prompt_optimization_dir, exist_ok=True)
+        os.makedirs(config.agent_output_dir, exist_ok=True)
         os.makedirs(os.path.dirname(config.trainer.default_local_dir), exist_ok=True)
-        pprint(OmegaConf.to_container(config, resolve=True))  # resolve=True will eval symbol values
+        pprint(OmegaConf.to_container(config, resolve=True))
         OmegaConf.resolve(config)
 
         if config.trainer.debug:
@@ -189,14 +184,11 @@ class TaskRunner:
         trust_remote_code = config.data.get("trust_remote_code", False)
         tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
 
-        # base model chat template
         if config.actor_rollout_ref.model.pretrained_tokenizer:
             tokenizer.chat_template = "{%- for message in messages -%}{{- '\n' if not loop.first -}}{{- message['content'] -}}{%- endfor -%}"
 
-        # Used for multimodal LLM, could be None
         processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
 
-        # Version validation for vllm.
         if config.actor_rollout_ref.rollout.name in ["vllm"]:
             from verl.utils.vllm_utils import is_version_ge
 
@@ -214,7 +206,7 @@ class TaskRunner:
             ray_worker_group_cls = RayWorkerGroup
 
         elif config.actor_rollout_ref.actor.strategy == "megatron":
-            assert config.actor_rol# lout_ref.actor.strategy == config.critic.strategy
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
             from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
             from verl.workers.megatron_workers import ActorRolloutRefWorker, AsyncActorRolloutRefWorker, CriticWorker
 
@@ -269,7 +261,6 @@ class TaskRunner:
             reward_fn = GeneralIORewardManager(
                 tokenizer=tokenizer,
                 num_examine=0,
-                split='train',
                 reward_fn_extraction_type=config.reward_fn.extraction_type,
                 splitter=config.reward_fn.splitter,
                 output_path=config.trainer.default_local_dir,
@@ -283,12 +274,23 @@ class TaskRunner:
                 stream=getattr(config.reward_fn, 'stream', True),
                 boxed_retry=config.reward_fn.boxed_retry,
                 judge_with_actor=config.reward_fn.judge_with_actor,
-                infer_together=config.reward_fn.infer_together,
-                normalize_scores_in_batch=getattr(config.reward_fn, 'normalize_scores_in_batch', False),
-                # judge_with_actor only available for infering question and answer score together
+                use_format_reward=getattr(config.azr, 'use_format_reward', True),
+                agent_output_dir=config.agent_output_dir,
+                diversity_reward_config=config.azr.reward.get('diversity_reward_config', None),
             )
 
             # For validation, use BenchmarkEvaluationRewardManager instead
+            dump_eval_path = None
+            if config.azr.get('dump_eval_data', False):
+                exp_name = config.trainer.experiment_name
+                # Prefer saving in resume_from_path (the checkpoint root) if available
+                dump_dir = getattr(config.trainer, 'resume_from_path', None)
+                if not dump_dir:
+                    dump_dir = config.trainer.default_local_dir
+                
+                dump_eval_path = f"{dump_dir}/evaluation_dump_{exp_name}.jsonl"
+                print(f"Dump evaluation data enabled. Path: {dump_eval_path}")
+
             val_reward_fn = BenchmarkEvaluationRewardManager(
                 tokenizer=tokenizer,
                 model_name=getattr(config.azr, 'benchmark_eval_model', 'meta/llama-3.1-405b-instruct'),
@@ -298,7 +300,7 @@ class TaskRunner:
                 stream=getattr(config.reward_fn, 'stream', True),
                 boxed_retry=config.reward_fn.boxed_retry,
                 api_keys=api_keys,  # Pass the loaded API keys
-                # maybe judge_with_actor as well?
+                dump_eval_path=dump_eval_path,
             )
         else:
             reward_fn = CodeIORewardManager(
