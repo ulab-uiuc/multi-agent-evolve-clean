@@ -2,8 +2,9 @@
 # Half-ref MAE training on a 16-sample FusionBench seed subset (Qwen2.5-3B).
 # Prerequisites:
 #   1) python scripts/sample_fixed_fusionbench_subset.py --num_samples 16 --seed 42
-#   2) api.json at repo root (NVIDIA NIM keys for judge reward)
-#   3) Set RUN_DIR below (or pass trainer.default_local_dir=... on CLI)
+#   2) python scripts/prepare_code_reason_placeholder.py --min-rows 16
+#   3) api.json at repo root (NVIDIA NIM keys for judge reward)
+#   4) Set RUN_DIR below (or pass trainer.default_local_dir=... on CLI)
 set -x
 
 export NCCL_DEBUG=INFO
