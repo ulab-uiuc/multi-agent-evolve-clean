@@ -13,6 +13,28 @@ import argparse
 from pathlib import Path
 
 
+def _load_hf_dataset_with_parquet_fallback(
+    repo_id: str,
+    split: str,
+    parquet_glob: str,
+):
+    """Load a HF dataset, falling back to parquet shards when cache metadata is incompatible."""
+    try:
+        return load_dataset(repo_id, split=split)
+    except ValueError as exc:
+        if "Feature type 'List' not found" not in str(exc):
+            raise
+        print(
+            f"Warning: incompatible cached metadata for {repo_id}. "
+            f"Loading parquet shards directly from hf://datasets/{repo_id}/{parquet_glob}"
+        )
+        return load_dataset(
+            "parquet",
+            data_files={split: f"hf://datasets/{repo_id}/{parquet_glob}"},
+            split=split,
+        )
+
+
 def load_math_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
     """Load MATH dataset."""
     dataset = load_dataset("HuggingFaceH4/MATH-500", split=split)
@@ -605,7 +627,11 @@ Think through the constraints systematically and provide your final answer."""
 
 def load_mmlu_pro_dataset(split: str = "test", num_samples: int = None) -> List[Dict]:
     """Load MMLU-Pro dataset for enhanced multi-task language understanding evaluation."""
-    dataset = load_dataset("TIGER-Lab/MMLU-Pro", split=split)
+    dataset = _load_hf_dataset_with_parquet_fallback(
+        repo_id="TIGER-Lab/MMLU-Pro",
+        split=split,
+        parquet_glob=f"data/{split}-*",
+    )
 
     data = []
     for i, item in enumerate(dataset):
