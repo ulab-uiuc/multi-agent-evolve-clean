@@ -1,15 +1,19 @@
 #!/bin/bash
 # Evaluate a MAE checkpoint on all general benchmarks (ID + OOD).
 #
-# Usage:
-#   RUN_DIR=/path/to/runs/MAE_3B_halfref_16 \
+# Usage (auto-find step 150 under RUN_DIR):
+#   RUN_DIR=./runs/MAE_3B_halfref_16 \
 #   GLOBAL_STEP=150 \
 #   bash scripts/evaluation/eval_all_benchmarks.sh
 #
+# Usage (explicit checkpoint path):
+#   CKPT_PATH=/abs/path/to/global_step_150 \
+#   RESUME_DIR=/abs/path/to/timestamped_run_dir \
+#   bash scripts/evaluation/eval_all_benchmarks.sh
+#
 # Optional:
-#   BENCHMARK_MAX_SAMPLES=500   # per benchmark
+#   BENCHMARK_MAX_SAMPLES=500
 #   CUDA_VISIBLE_DEVICES=0,1,2,3
-#   RESUME_DIR=$RUN_DIR         # override if checkpoint root differs
 set -x
 
 export NCCL_DEBUG=INFO
@@ -20,22 +24,51 @@ export HYDRA_FULL_ERROR=1
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1,2,3}"
 export NCCL_P2P_DISABLE=1
 
-RUN_DIR="${RUN_DIR:?Set RUN_DIR to your training run root, e.g. ./runs/MAE_3B_halfref_16}"
 GLOBAL_STEP="${GLOBAL_STEP:-150}"
-RESUME_DIR="${RESUME_DIR:-$RUN_DIR}"
 MODEL_TAG="${MODEL_TAG:-Qwen2.5-3B-Instruct}"
 EXTRACTION_TYPE="${EXTRACTION_TYPE:-boxed}"
 BENCHMARK_MAX_SAMPLES="${BENCHMARK_MAX_SAMPLES:-500}"
 
-CKPT_ROOT="${RESUME_DIR}/general_io/${MODEL_TAG}/${EXTRACTION_TYPE}"
-CKPT_PATH="${CKPT_ROOT}/global_step_${GLOBAL_STEP}"
+find_checkpoint() {
+  local search_root="$1"
+  local step="$2"
+  find "${search_root}" -type d -path "*/general_io/${MODEL_TAG}/${EXTRACTION_TYPE}/global_step_${step}" 2>/dev/null | head -n 1
+}
+
+if [ -n "${CKPT_PATH:-}" ]; then
+  CKPT_PATH="$(readlink -f "${CKPT_PATH}" 2>/dev/null || echo "${CKPT_PATH}")"
+  if [ -z "${RESUME_DIR:-}" ]; then
+    RESUME_DIR="$(dirname "$(dirname "$(dirname "${CKPT_PATH}")")")"
+  fi
+elif [ -n "${RUN_DIR:-}" ]; then
+  CKPT_PATH="$(find_checkpoint "${RUN_DIR}" "${GLOBAL_STEP}")"
+  if [ -z "${CKPT_PATH}" ]; then
+    echo "Checkpoint global_step_${GLOBAL_STEP} not found under RUN_DIR=${RUN_DIR}"
+    echo "Training checkpoints are saved under a timestamped subdir, e.g.:"
+    echo "  ${RUN_DIR}/YYYYMMDD/HHMMSS_MAE_MAE_3B_halfref_16/general_io/${MODEL_TAG}/${EXTRACTION_TYPE}/global_step_${GLOBAL_STEP}"
+    echo
+    echo "Try searching from repo root:"
+    echo "  find . -type d -name 'global_step_${GLOBAL_STEP}' 2>/dev/null"
+    echo
+    echo "Available checkpoints under ${RUN_DIR}:"
+    find "${RUN_DIR}" -type d -name 'global_step_*' 2>/dev/null | sort || echo "  (none)"
+    exit 1
+  fi
+  RESUME_DIR="$(dirname "$(dirname "$(dirname "${CKPT_PATH}")")")"
+else
+  echo "Set either CKPT_PATH or RUN_DIR."
+  echo "Example:"
+  echo "  RUN_DIR=./runs/MAE_3B_halfref_16 GLOBAL_STEP=150 bash scripts/evaluation/eval_all_benchmarks.sh"
+  exit 1
+fi
 
 if [ ! -d "${CKPT_PATH}" ]; then
   echo "Checkpoint not found: ${CKPT_PATH}"
-  echo "Available checkpoints:"
-  ls -d "${CKPT_ROOT}"/global_step_* 2>/dev/null || echo "  (none under ${CKPT_ROOT})"
   exit 1
 fi
+
+echo "Using checkpoint: ${CKPT_PATH}"
+echo "Using resume_dir: ${RESUME_DIR}"
 
 # ID + OOD benchmarks used in this repo
 ALL_BENCHMARKS="['mmlu', 'math', 'gsm8k', 'arc_challenge', 'gpqa', 'commonsenseqa', 'openbookqa', 'naturalquestions', 'triviaqa', 'squad', 'boolq', 'hellaswag', 'truthfulqa', 'bbh', 'livebench_reasoning', 'amc', 'minerva', 'winogrande', 'olympiad', 'mmlu_pro']"
@@ -74,7 +107,7 @@ python -m absolute_zero_reasoner.main_azr_ppo \
     actor_rollout_ref.rollout.temperature=1.0 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     algorithm.kl_ctrl.kl_coef=0.0 \
-    trainer.default_local_dir="${RUN_DIR}" \
+    trainer.default_local_dir="${RESUME_DIR}" \
     trainer.critic_warmup=0 \
     trainer.logger=['console','wandb'] \
     trainer.project_name='MAE' \
